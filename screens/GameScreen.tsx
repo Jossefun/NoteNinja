@@ -138,7 +138,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
   // UI chrome approx: header(56) + statsBar(56) + footer(60) + padding(32) = 204
   const UI_CHROME = 204;
   const GRID_HEIGHT = SCREEN_HEIGHT - UI_CHROME;
-  const CARD_PADDING = 6; // margin around each card
+  const CARD_PADDING = 16; // margin around each card
   const rows = Math.ceil((config.pairs * 2) / numColumns);
   // card size = fill grid height divided by rows, capped by width-based size
   const cardSizeByHeight = Math.floor(GRID_HEIGHT / rows) - CARD_PADDING;
@@ -398,7 +398,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
             soundOnly={soundOnly}
             highlighted={isReplaying && item.soundKey === highlightedSoundKey}
             flashKey={(flashKeys[item.soundKey] ?? 0) + (tapFlashKeys[item.id ?? ''] ?? 0)}
-            onTap={() => setTapFlashKeys((prev) => ({ ...prev, [item.id ?? '']: (prev[item.id ?? ''] ?? 0) + 1 }))}
+            onTap={() => { if (playingNotes && item.matched) setTapFlashKeys((prev) => ({ ...prev, [item.id ?? '']: (prev[item.id ?? ''] ?? 0) + 1 })); }}
           />
         )}
         contentContainerStyle={styles.grid}
