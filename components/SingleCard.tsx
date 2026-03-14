@@ -6,6 +6,7 @@ import {
   Animated,
   StyleSheet,
   Dimensions,
+  View,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { NoteCard, SOUND_REQUIRES } from '../notes';
@@ -18,11 +19,11 @@ interface Props {
   readonly flipped: boolean;
   readonly disabled: boolean;
   readonly numColumns: number;
-  readonly cardHeight?: number;   // if provided, card is portrait rectangle
+  readonly cardHeight?: number;
   readonly soundOnly: boolean;
-  readonly highlighted?: boolean; // replay highlight
-  readonly flashKey?: number;     // increment to trigger match flash
-  readonly onTap?: () => void;    // called on every press (even when disabled)
+  readonly highlighted?: boolean;
+  readonly flashKey?: number;
+  readonly onTap?: () => void;
 }
 
 export default function SingleCard({
@@ -37,14 +38,15 @@ export default function SingleCard({
   flashKey = 0,
   onTap,
 }: Props) {
-  // Use cardHeight as the authoritative size (GameScreen calculates it to fit screen)
-  const CARD_WIDTH = cardHeight ?? (SCREEN_WIDTH / numColumns - 10);
+  const CARD_WIDTH  = cardHeight ?? (SCREEN_WIDTH / numColumns - 10);
   const CARD_HEIGHT = CARD_WIDTH;
 
-  const flipAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const isFlashing = useRef(false);
+  const flipAnim   = useRef(new Animated.Value(0)).current;
+  const pulseAnim  = useRef(new Animated.Value(1)).current;
+  const streakAnim = useRef(new Animated.Value(-1)).current; // -1 = off-screen left, 1 = off-screen right
+  const streakOpacity = useRef(new Animated.Value(0)).current;
   const prevFlashKey = useRef(0);
+  const [flashActive, setFlashActive] = React.useState(false);
 
   // Flip animation
   useEffect(() => {
@@ -56,16 +58,27 @@ export default function SingleCard({
     }).start();
   }, [flipped]);
 
-  // Match flash — 600ms, white border via isFlashing ref + forceUpdate trick
-  const [flashActive, setFlashActive] = React.useState(false);
+  // Match flash — pulse + diagonal streak
   useEffect(() => {
     if (flashKey > 0 && flashKey !== prevFlashKey.current) {
       prevFlashKey.current = flashKey;
       setFlashActive(true);
+
+      // Pulse scale
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.15, duration: 150, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1.0, duration: 450, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.0,  duration: 450, useNativeDriver: true }),
       ]).start();
+
+      // Diagonal streak: sweep from -1 to +1 across card
+      streakAnim.setValue(-1);
+      streakOpacity.setValue(0);
+      Animated.sequence([
+        Animated.timing(streakOpacity, { toValue: 1,   duration: 60,  useNativeDriver: true }),
+        Animated.timing(streakAnim,    { toValue: 1,   duration: 380, useNativeDriver: true }),
+        Animated.timing(streakOpacity, { toValue: 0,   duration: 120, useNativeDriver: true }),
+      ]).start();
+
       setTimeout(() => setFlashActive(false), 600);
     }
   }, [flashKey]);
@@ -75,15 +88,21 @@ export default function SingleCard({
     if (highlighted) {
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.18, duration: 120, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1.0, duration: 120, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.0,  duration: 120, useNativeDriver: true }),
       ]).start();
     }
   }, [highlighted]);
 
-  const frontRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
-  const backRotate  = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const frontRotate  = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const backRotate   = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
   const frontOpacity = flipAnim.interpolate({ inputRange: [0.49, 0.5], outputRange: [0, 1] });
   const backOpacity  = flipAnim.interpolate({ inputRange: [0.49, 0.5], outputRange: [1, 0] });
+
+  // Streak translateX: from -CARD_WIDTH to +CARD_WIDTH
+  const streakX = streakAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
+  });
 
   const handlePress = async (): Promise<void> => {
     if (!disabled) handleChoice(card);
@@ -118,7 +137,13 @@ export default function SingleCard({
         >
           <Image
             source={require('../assets/imgNotes/cover.png')}
-            style={{ width: '100%', height: '100%', borderRadius: 10 }}
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              borderRadius: 10,
+              borderWidth: 1,        // ← Add this
+              borderColor: '#888', // ← Add this
+            }}
             resizeMode="cover"
           />
         </Animated.View>
@@ -134,6 +159,7 @@ export default function SingleCard({
               backgroundColor: card.color,
               borderColor: showBorder ? '#ffffff' : 'rgba(255,255,255,0.2)',
               borderWidth: showBorder ? 3 : 2,
+              overflow: 'hidden',
             },
             { transform: [{ rotateY: frontRotate }], opacity: frontOpacity },
           ]}
@@ -150,6 +176,22 @@ export default function SingleCard({
               </Text>
             </>
           )}
+
+          {/* Diagonal streak overlay */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.streak,
+              {
+                height: CARD_HEIGHT * 2.5,
+                opacity: streakOpacity,
+                transform: [
+                  { translateX: streakX },
+                  { rotate: '-45deg' },
+                ],
+              },
+            ]}
+          />
         </Animated.View>
 
       </Animated.View>
@@ -168,6 +210,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 4,
+  },
+  streak: {
+    position: 'absolute',
+    width: 28,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 14,
+    top: -50,
   },
   noteLabel: { fontWeight: 'bold', textAlign: 'center' },
   octaveLabel: { marginTop: 4, opacity: 0.85, textAlign: 'center' },

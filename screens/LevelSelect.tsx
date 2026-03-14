@@ -21,19 +21,19 @@ const LEVELS: LevelOption[] = [
     key: 'easy',
     label: 'Easy',
     description: '7 pairs  ·  Natural notes  ·  Octave 4',
-    color: '#27ae60',
+    color: '#3cd37b',
   },
   {
     key: 'medium',
     label: 'Medium',
     description: '10 pairs  ·  Natural notes  ·  Octaves 3–5',
-    color: '#e67e22',
+    color: '#f09d55',
   },
   {
     key: 'hard',
     label: 'Hard',
     description: '14 pairs  ·  Naturals + Flats  ·  Octaves 3–6',
-    color: '#c0392b',
+    color: '#e45e4f',
   },
 ];
 
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: '#888',
+    color: '#fff',
     letterSpacing: 1,
     textAlign: 'center',
   },
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   },
   levelDesc: {
     fontSize: 12,
-    color: '#888',
+    color: '#fff',
     letterSpacing: 0.3,
   },
   bottomSection: {

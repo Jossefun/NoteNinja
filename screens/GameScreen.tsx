@@ -138,7 +138,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
   // UI chrome approx: header(56) + statsBar(56) + footer(60) + padding(32) = 204
   const UI_CHROME = 204;
   const GRID_HEIGHT = SCREEN_HEIGHT - UI_CHROME;
-  const CARD_PADDING = 16; // margin around each card
+  const CARD_PADDING = 10; // margin around each card
   const rows = Math.ceil((config.pairs * 2) / numColumns);
   // card size = fill grid height divided by rows, capped by width-based size
   const cardSizeByHeight = Math.floor(GRID_HEIGHT / rows) - CARD_PADDING;
@@ -558,9 +558,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, gap: 12 },
-  footerInsightsBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1.5, borderColor: '#8e44ad' },
+  footerInsightsBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1, borderColor: '#c8a3d8' },
   footerInsightsBtnText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-  newGameBtn: { paddingVertical: 10, paddingHorizontal: 36, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1.5, borderColor: '#8e44ad' },
+  newGameBtn: { paddingVertical: 10, paddingHorizontal: 36, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1, borderColor: '#c8a3d8' },
   newGameText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' },
   modalBox: {

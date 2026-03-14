@@ -23,21 +23,21 @@ const MODES: ModeOption[] = [
     label: 'Normal',
     icon: '🎵',
     description: 'Cards show the note name.\nMatch by sight and sound.',
-    color: '#2980b9',
+    color: '#509fd4',
   },
   {
     key: 'sound',
     label: 'Sound Only',
     icon: '👂',
     description: 'Cards show no note name.\nMatch purely by ear.',
-    color: '#8e44ad',
+    color: '#ae61cf',
   },
 ];
 
 const LEVEL_COLORS: Record<LevelKey, string> = {
-  easy: '#27ae60',
-  medium: '#e67e22',
-  hard: '#c0392b',
+  easy: '#3cd37b',
+  medium: '#f09d55',
+  hard: '#e45e4f',
 };
 
 interface Props {
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   backBtn: { paddingVertical: 6, paddingHorizontal: 10, position: 'absolute', top: 54, left: 20, zIndex: 1 },
-  backBtnText: { color: '#aaa', fontSize: 14 },
+  backBtnText: { color: '#fff', fontSize: 14 },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -163,6 +163,7 @@ const styles = StyleSheet.create({
   icon: {
     fontSize: 28,
     color: '#fff',
+    
   },
   cardContent: {
     flex: 1,
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
   },
   modeDesc: {
     fontSize: 13,
-    color: '#888',
+    color: '#fff',
     lineHeight: 20,
   },
 });
