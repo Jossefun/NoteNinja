@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
+  Image,
   TouchableOpacity,
   FlatList,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Dimensions,
+  PanResponder,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import SingleCard from '../components/SingleCard';
@@ -25,6 +27,7 @@ import {
   saveGameRecord,
   NoteAttempt,
 } from '../storage';
+import { BG_DEEP, BG_SURFACE, ACCENT_PURPLE, LEVEL_COLORS, LEVEL_TITLES } from '../theme';
 
 const COLUMNS: Record<LevelKey, number> = { easy: 4, medium: 4, hard: 5 };
 const REPLAY_DELAY_MS = 300;
@@ -83,8 +86,7 @@ Rules:
 
   const data = await response.json();
   const text = data.content?.[0]?.text ?? '';
-  const parsed: MelodyNote[] = JSON.parse(text.trim());
-  return parsed;
+  return JSON.parse(text.trim()) as MelodyNote[];
 }
 
 interface Props {
@@ -96,62 +98,110 @@ interface Props {
 }
 
 export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, onShowInsights }: Props) {
+  // Game state
   const [cards, setCards] = useState<NoteCard[]>([]);
-  const [turns, setTurns] = useState<number>(0);
+  const [turns, setTurns] = useState(0);
   const [choiceOne, setChoiceOne] = useState<NoteCard | null>(null);
   const [choiceTwo, setChoiceTwo] = useState<NoteCard | null>(null);
-  const [disabled, setDisabled] = useState<boolean>(false);
-  const [won, setWon] = useState<boolean>(false);
-  const [playingNotes, setPlayingNotes] = useState<boolean>(false);
+  const [disabled, setDisabled] = useState(false);
+  const [won, setWon] = useState(false);
+  const [playingNotes, setPlayingNotes] = useState(false);
 
-  // flashKey per soundKey — increment on match (flashes both cards in pair)
+  // Flash keys: match flash (by soundKey) and tap flash (by card id)
   const [flashKeys, setFlashKeys] = useState<Record<string, number>>({});
-  // tapFlashKeys per card id — increment on tap (flashes only the tapped card)
   const [tapFlashKeys, setTapFlashKeys] = useState<Record<string, number>>({});
 
-  const [seconds, setSeconds] = useState<number>(0);
-  const [timerActive, setTimerActive] = useState<boolean>(false);
+  // Timer
+  const [seconds, setSeconds] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Score & streak
   const [score, setScore] = useState<number | null>(null);
   const [bestScore, setBestScore] = useState<number | null>(null);
-  const [isNewBest, setIsNewBest] = useState<boolean>(false);
-  const [streak, setStreak] = useState<number>(0);
+  const [isNewBest, setIsNewBest] = useState(false);
+  const [streak, setStreak] = useState(0);
 
+  // Match tracking
   const [matchOrder, setMatchOrder] = useState<string[]>([]);
-  // unique NoteCard per matched soundKey (for Play Your Notes pad)
   const [matchedCards, setMatchedCards] = useState<NoteCard[]>([]);
 
-  const [isReplaying, setIsReplaying] = useState<boolean>(false);
-  const [isComposing, setIsComposing] = useState<boolean>(false);
+  // Replay & AI melody
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const [highlightedSoundKey, setHighlightedSoundKey] = useState<string | null>(null);
   const replayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // "Play Your Notes" modal
-  const [showNotepad, setShowNotepad] = useState<boolean>(false);
+  const [showNotepad, setShowNotepad] = useState(false);
+
+  // Swipe-to-play: card layout map and last swiped card tracker
+  const cardLayoutsRef = useRef<Record<string, { x: number; y: number; width: number; height: number }>>({});
+  const lastSwipedIdRef = useRef<string | null>(null);
+  const playingNotesRef = useRef(false);
+  useEffect(() => { playingNotesRef.current = playingNotes; }, [playingNotes]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => playingNotesRef.current,
+      onMoveShouldSetPanResponder: () => playingNotesRef.current,
+      onPanResponderGrant: (e) => {
+        lastSwipedIdRef.current = null;
+        handleSwipeMove(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      },
+      onPanResponderMove: (e) => {
+        handleSwipeMove(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      },
+      onPanResponderRelease: () => {
+        lastSwipedIdRef.current = null;
+      },
+    })
+  ).current;
+
+  const handleSwipeMove = (pageX: number, pageY: number): void => {
+    const layouts = cardLayoutsRef.current;
+    for (const id in layouts) {
+      const { x, y, width, height } = layouts[id];
+      if (pageX >= x && pageX <= x + width && pageY >= y && pageY <= y + height) {
+        if (id === lastSwipedIdRef.current) return; // already played this card
+        lastSwipedIdRef.current = id;
+        // Find the card and trigger sound + flash (matched cards only)
+        setCards((prev) => {
+          const card = prev.find((c) => c.id === id);
+          if (card?.matched) {
+            playSound(card.soundKey);
+            setTapFlashKeys((fk) => ({ ...fk, [id]: (fk[id] ?? 0) + 1 }));
+          }
+          return prev;
+        });
+        break;
+      }
+    }
+  };
 
   const config = LEVEL_CONFIG[level];
   const numColumns = COLUMNS[level];
   const soundOnly = mode === 'sound';
+  const levelColor = LEVEL_COLORS[level];
 
-  // Card sizing: fit all rows on screen with padding top+bottom (16px each side)
-  // UI chrome approx: header(56) + statsBar(56) + footer(60) + padding(32) = 204
+  // Card sizing: fit all rows within available screen height
   const UI_CHROME = 204;
-  const GRID_HEIGHT = SCREEN_HEIGHT - UI_CHROME;
-  const CARD_PADDING = 10; // margin around each card
   const rows = Math.ceil((config.pairs * 2) / numColumns);
-  // card size = fill grid height divided by rows, capped by width-based size
-  const cardSizeByHeight = Math.floor(GRID_HEIGHT / rows) - CARD_PADDING;
-  const cardSizeByWidth  = Math.floor(SCREEN_WIDTH / numColumns) - CARD_PADDING;
+  const cardSizeByHeight = Math.floor((SCREEN_HEIGHT - UI_CHROME) / rows) - 10;
+  const cardSizeByWidth = Math.floor(SCREEN_WIDTH / numColumns) - 10;
   const cardSize = Math.min(cardSizeByHeight, cardSizeByWidth);
-  const effectiveColumns = numColumns;
-  const cardHeight = cardSize;
 
+  // Insight tracking: wrong attempts per note
+  const insightRef = useRef<Record<string, { wrong: number; confusedWith: string[] }>>({});
+  const matchOrderRef = useRef<string[]>([]);
+  useEffect(() => { matchOrderRef.current = matchOrder; }, [matchOrder]);
+
+  // Load best score and streak on mount
   useEffect(() => {
     getBestScore(level, mode).then(setBestScore);
     getStreak().then(setStreak);
   }, [level, mode]);
 
+  // Timer tick
   useEffect(() => {
     if (timerActive) {
       timerRef.current = setInterval(() => setSeconds((p) => p + 1), 1000);
@@ -184,6 +234,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
     setFlashKeys({});
     setTapFlashKeys({});
     insightRef.current = {};
+    cardLayoutsRef.current = {};
     setIsReplaying(false);
     setIsComposing(false);
     setPlayingNotes(false);
@@ -194,28 +245,25 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
 
   const handleChoice = (card: NoteCard): void => {
     if (choiceOne && choiceOne.id === card.id) return;
-    if (!choiceOne && !timerActive) setTimerActive(true); // start on first flip
+    if (!choiceOne && !timerActive) setTimerActive(true);
     choiceOne ? setChoiceTwo(card) : setChoiceOne(card);
   };
 
+  // Compare two selected cards
   useEffect(() => {
     if (choiceOne && choiceTwo) {
       setDisabled(true);
       if (choiceOne.soundKey === choiceTwo.soundKey) {
         const key = choiceOne.soundKey;
-        // Record match
         setMatchOrder((prev) => [...prev, key]);
         setMatchedCards((prev) =>
           prev.find((c) => c.soundKey === key) ? prev : [...prev, choiceOne!]
         );
-        // Flash both cards
         setFlashKeys((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
-        setCards((prev) =>
-          prev.map((c) => c.soundKey === key ? { ...c, matched: true } : c)
-        );
+        setCards((prev) => prev.map((c) => c.soundKey === key ? { ...c, matched: true } : c));
         resetTurn();
       } else {
-        // Track confusion: choiceOne was wrong guess for some note, mark it
+        // Track confusion for insights
         const wrongKey = choiceOne.soundKey;
         const otherKey = choiceTwo.soundKey;
         if (!insightRef.current[wrongKey]) insightRef.current[wrongKey] = { wrong: 0, confusedWith: [] };
@@ -229,12 +277,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
     }
   }, [choiceOne, choiceTwo]);
 
-  const matchOrderRef = useRef<string[]>([]);
-  useEffect(() => { matchOrderRef.current = matchOrder; }, [matchOrder]);
-
-  // Insight tracking: wrong attempts and confusion per note
-  const insightRef = useRef<Record<string, { wrong: number; confusedWith: string[] }>>({});
-
+  // Check for win
   useEffect(() => {
     if (cards.length > 0 && cards.every((c) => c.matched)) {
       handleWin(matchOrderRef.current);
@@ -243,27 +286,22 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
 
   const handleWin = async (finalMatchOrder: string[]): Promise<void> => {
     setTimerActive(false);
-    const finalTurns = turns + 1;
-    const finalScore = calcScore(finalTurns, seconds);
+    const finalScore = calcScore(turns + 1, seconds);
     setScore(finalScore);
     const newBest = await saveBestScore(level, mode, finalScore);
     setIsNewBest(newBest);
     if (newBest) setBestScore(finalScore);
     const newStreak = await incrementStreak();
     setStreak(newStreak);
-    // Save insights record
     const noteAttempts: NoteAttempt[] = finalMatchOrder.map((note) => ({
       note,
       wrong: insightRef.current[note]?.wrong ?? 0,
       confusedWith: insightRef.current[note]?.confusedWith ?? [],
     }));
     saveGameRecord({ ts: Date.now(), level, mode, notes: noteAttempts });
-
-    // Auto-replay then show modal
-    runReplay(finalMatchOrder, () => setWon(true));
+    replayRef.current = setTimeout(() => runReplay(finalMatchOrder, () => setWon(true)), 1000);
   };
 
-  // ── Plain replay ──────────────────────────────────────────────
   const runReplay = (order: string[], onDone?: () => void): void => {
     if (order.length === 0) { onDone?.(); return; }
     setIsReplaying(true);
@@ -277,16 +315,14 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
         onDone?.();
         return;
       }
-      const key = order[index];
-      setHighlightedSoundKey(key);
-      playSound(key);
+      setHighlightedSoundKey(order[index]);
+      playSound(order[index]);
       index++;
       replayRef.current = setTimeout(playNext, REPLAY_DELAY_MS);
     };
     playNext();
   };
 
-  // ── AI melody ────────────────────────────────────────────────
   const runAIMelody = async (): Promise<void> => {
     setWon(false);
     setIsComposing(true);
@@ -332,6 +368,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
     shuffleCards();
   };
 
+  // Init on level/mode change, cleanup on unmount
   useEffect(() => {
     shuffleCards();
     return () => {
@@ -339,8 +376,6 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [level, mode]);
-
-
 
   return (
     <SafeAreaView style={styles.container}>
@@ -351,15 +386,24 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
         <TouchableOpacity onPress={onBackToMode} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Mode</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>NoteNinja</Text>
+        <View style={styles.titleRow}>
+          <Image
+            source={require('../assets/imgNotes/cover.png')}
+            style={styles.titleIcon}
+            resizeMode="contain"
+          />
+          <Text style={[styles.title, { color: levelColor }]}>
+            {LEVEL_TITLES[level]}
+          </Text>
+        </View>
         <View style={styles.headerRight}>
-          <Text style={styles.levelBadge}>{config.label}</Text>
-          <Text style={styles.modeBadge}>{soundOnly ? '👂' : '🎵'}</Text>
+          <Text style={[styles.levelBadge, { color: levelColor }]}>{config.label}</Text>
+          <Text style={styles.modeBadge}>{soundOnly ? '♫' : '♩'}</Text>
         </View>
       </View>
 
       {/* Stats bar */}
-      <View style={styles.statsBar}>
+      <View style={[styles.statsBar, { borderColor: levelColor }]}>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>TURNS</Text>
           <Text style={styles.statValue}>{turns}</Text>
@@ -378,53 +422,58 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
         </View>
       </View>
 
-
-
-      {/* Card grid */}
-      <FlatList<NoteCard>
-        data={cards}
-        keyExtractor={(item) => item.id ?? item.soundKey}
-        numColumns={effectiveColumns}
-        key={effectiveColumns}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <SingleCard
-            card={item}
-            handleChoice={handleChoice}
-            flipped={item === choiceOne || item === choiceTwo || item.matched}
-            disabled={disabled}
-            numColumns={effectiveColumns}
-            cardHeight={cardSize}
-            soundOnly={soundOnly}
-            highlighted={isReplaying && item.soundKey === highlightedSoundKey}
-            flashKey={(flashKeys[item.soundKey] ?? 0) + (tapFlashKeys[item.id ?? ''] ?? 0)}
-            onTap={() => { if (playingNotes && item.matched) setTapFlashKeys((prev) => ({ ...prev, [item.id ?? '']: (prev[item.id ?? ''] ?? 0) + 1 })); }}
-          />
-        )}
-        contentContainerStyle={styles.grid}
-        style={styles.flatList}
-      />
+      {/* Card grid — PanResponder active in playingNotes mode */}
+      <View style={styles.flatList} {...panResponder.panHandlers}>
+        <FlatList<NoteCard>
+          data={cards}
+          keyExtractor={(item) => item.id ?? item.soundKey}
+          numColumns={numColumns}
+          key={numColumns}
+          scrollEnabled={false}
+          renderItem={({ item }) => (
+            <SingleCard
+              card={item}
+              handleChoice={handleChoice}
+              flipped={item === choiceOne || item === choiceTwo || item.matched}
+              disabled={disabled}
+              numColumns={numColumns}
+              cardHeight={cardSize}
+              soundOnly={soundOnly}
+              highlighted={isReplaying && item.soundKey === highlightedSoundKey}
+              flashKey={(flashKeys[item.soundKey] ?? 0) + (tapFlashKeys[item.id ?? ''] ?? 0)}
+              onTap={() => {
+                if (playingNotes && item.matched)
+                  setTapFlashKeys((prev) => ({ ...prev, [item.id ?? '']: (prev[item.id ?? ''] ?? 0) + 1 }));
+              }}
+              onRegisterLayout={(layout) => {
+                if (item.id) cardLayoutsRef.current[item.id] = layout;
+              }}
+              levelColor={levelColor}
+            />
+          )}
+          contentContainerStyle={styles.grid}
+        />
+      </View>
 
       {/* Footer */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.newGameBtn} onPress={handleNewGame}>
+        <TouchableOpacity style={[styles.newGameBtn, { borderColor: levelColor }]} onPress={handleNewGame}>
           <Text style={styles.newGameText}>New Game</Text>
         </TouchableOpacity>
         {playingNotes && (
-          <TouchableOpacity style={styles.footerInsightsBtn} onPress={onShowInsights}>
+          <TouchableOpacity style={[styles.footerInsightsBtn, { borderColor: levelColor }]} onPress={onShowInsights}>
             <Text style={styles.footerInsightsBtnText}>💡 Insights</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* ── Win modal ── */}
+      {/* Win modal */}
       <Modal visible={won} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>
-              {isNewBest ? '🏆 New Best!' : 'You won!'}
+          <View style={[styles.modalBox, { borderColor: levelColor }]}>
+            <Text style={[styles.modalTitle, { color: levelColor }]}>
+              {isNewBest ? '★ New Best!' : 'You won!'}
             </Text>
-
             <View style={styles.scoreGrid}>
               <View style={styles.scoreItem}>
                 <Text style={styles.scoreLabel}>TURNS</Text>
@@ -443,49 +492,42 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
                 <Text style={styles.scoreValue}>{streak}</Text>
               </View>
             </View>
-
             {bestScore !== null && (
               <Text style={styles.bestScoreText}>Best: {bestScore}</Text>
             )}
-
-            <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnAI]}
-              onPress={runAIMelody}
-            >
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnAI]} onPress={runAIMelody}>
               <Text style={styles.modalBtnText}>✦ AI Melody</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.modalBtn, styles.modalBtnReplay]}
-              onPress={() => { setWon(false); setDisabled(false); setPlayingNotes(true); }}
+              onPress={() => {
+                if (replayRef.current) clearTimeout(replayRef.current);
+                setIsReplaying(false);
+                setWon(false);
+                setDisabled(false);
+                setPlayingNotes(true);
+              }}
             >
               <Text style={styles.modalBtnText}>Play Your Notes</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={[styles.modalBtn, styles.modalBtnNewGame]} onPress={shuffleCards}>
               <Text style={styles.modalBtnText}>New Game</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnSecondary]}
-              onPress={onBackToMenu}
-            >
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={onBackToMenu}>
               <Text style={styles.modalBtnText}>Change Level</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnInsights]}
-              onPress={onShowInsights}
-            >
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnInsights]} onPress={onShowInsights}>
               <Text style={styles.modalBtnText}>💡  My Insights</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* ── Play Your Notes modal ── */}
+      {/* Play Your Notes modal */}
       <Modal visible={showNotepad} transparent animationType="slide">
         <View style={styles.notepadOverlay}>
           <View style={styles.notepadBox}>
-            <Text style={styles.notepadTitle}>🎹 Your Notes</Text>
+            <Text style={styles.notepadTitle}>♹ Your Notes</Text>
             <Text style={styles.notepadSubtitle}>Tap any note to hear it</Text>
             <ScrollView contentContainerStyle={styles.notepadGrid}>
               {matchedCards.map((card) => (
@@ -504,21 +546,26 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity
-              style={[styles.modalBtn, { marginTop: 16 }]}
-              onPress={() => setShowNotepad(false)}
-            >
+            <TouchableOpacity style={[styles.modalBtn, { marginTop: 16 }]} onPress={() => setShowNotepad(false)}>
               <Text style={styles.modalBtnText}>Back</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* AI composing overlay */}
+      {isComposing && (
+        <View style={styles.composingOverlay}>
+          <ActivityIndicator size="large" color="#27ae60" />
+          <Text style={styles.composingText}>Composing melody…</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1b1523' },
+  container: { flex: 1, backgroundColor: BG_DEEP },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -528,26 +575,26 @@ const styles = StyleSheet.create({
   },
   backBtn: { paddingVertical: 6, paddingHorizontal: 10 },
   backBtnText: { color: '#aaa', fontSize: 14 },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#fff', letterSpacing: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  titleIcon: { width: 28, height: 42 },
+  title: { fontSize: 20, fontWeight: 'bold', letterSpacing: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', minWidth: 60, justifyContent: 'flex-end' },
-  levelBadge: { color: '#c23866', fontSize: 13, fontWeight: '600' },
+  levelBadge: { fontSize: 13, fontWeight: '600' },
   modeBadge: { fontSize: 16, marginLeft: 6 },
   statsBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingVertical: 10,
     paddingHorizontal: 8,
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     marginHorizontal: 12,
     borderRadius: 10,
     marginBottom: 8,
-    borderColor: '#888',
     borderWidth: 1,
   },
   statItem: { alignItems: 'center' },
   statLabel: { fontSize: 10, color: '#888', letterSpacing: 1, marginBottom: 2 },
   statValue: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
-
   flatList: { flex: 1 },
   grid: {
     alignItems: 'center',
@@ -557,22 +604,40 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
   },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, gap: 12 },
-  footerInsightsBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1, borderColor: '#c8a3d8' },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 12,
+  },
+  footerInsightsBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: BG_SURFACE,
+    borderWidth: 1,
+    borderColor: ACCENT_PURPLE,
+  },
   footerInsightsBtnText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-  newGameBtn: { paddingVertical: 10, paddingHorizontal: 36, borderRadius: 10, backgroundColor: '#251d30', borderWidth: 1, borderColor: '#c8a3d8' },
+  newGameBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 36,
+    borderRadius: 10,
+    backgroundColor: BG_SURFACE,
+    borderWidth: 1,
+  },
   newGameText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' },
   modalBox: {
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     borderRadius: 16,
     padding: 28,
     width: '82%',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#8e44ad',
   },
-  modalTitle: { fontSize: 26, fontWeight: 'bold', color: '#fff', marginBottom: 20 },
+  modalTitle: { fontSize: 26, fontWeight: 'bold', marginBottom: 20 },
   scoreGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', width: '100%', marginBottom: 12 },
   scoreItem: { alignItems: 'center', width: '45%', marginBottom: 14 },
   scoreLabel: { fontSize: 10, color: '#888', letterSpacing: 1, marginBottom: 3 },
@@ -587,34 +652,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
     borderWidth: 1.5,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
   },
-  modalBtnAI: { borderColor: '#27ae60' },
-  modalBtnNewGame: { borderColor: '#2980b9' },
-  modalBtnReplay: { borderColor: '#e67e22' },    // orange — Medium
-  modalBtnSecondary: { borderColor: '#c0392b' }, // red    — Hard
-  modalBtnInsights: { borderColor: '#8e44ad', marginBottom: 0 },
+  modalBtnAI:        { borderColor: '#27ae60' },
+  modalBtnNewGame:   { borderColor: '#2980b9' },
+  modalBtnReplay:    { borderColor: '#e67e22' },
+  modalBtnSecondary: { borderColor: '#c0392b' },
+  modalBtnInsights:  { borderColor: ACCENT_PURPLE, marginBottom: 0 },
   modalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-
-  // Notepad modal
   notepadOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
   notepadBox: {
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 24,
     maxHeight: '80%',
     borderTopWidth: 2,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
   },
   notepadTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 4 },
   notepadSubtitle: { fontSize: 12, color: '#aaa', textAlign: 'center', marginBottom: 20 },
-  notepadGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-  },
+  notepadGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
   notepadCard: {
     width: 72,
     height: 72,
@@ -627,4 +685,12 @@ const styles = StyleSheet.create({
   },
   notepadNote: { fontSize: 18, fontWeight: 'bold' },
   notepadOctave: { fontSize: 10, opacity: 0.85, marginTop: 2 },
+  composingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  composingText: { color: '#fff', fontSize: 16 },
 });

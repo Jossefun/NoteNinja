@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { NoteCard, SOUND_REQUIRES } from '../notes';
+import { BG_SURFACE } from '../theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -24,6 +25,8 @@ interface Props {
   readonly highlighted?: boolean;
   readonly flashKey?: number;
   readonly onTap?: () => void;
+  readonly levelColor?: string;
+  readonly onRegisterLayout?: (layout: { x: number; y: number; width: number; height: number }) => void;
 }
 
 export default function SingleCard({
@@ -37,15 +40,17 @@ export default function SingleCard({
   highlighted = false,
   flashKey = 0,
   onTap,
+  levelColor = '#888',
+  onRegisterLayout,
 }: Props) {
   const CARD_WIDTH  = cardHeight ?? (SCREEN_WIDTH / numColumns - 10);
   const CARD_HEIGHT = CARD_WIDTH;
 
-  const flipAnim   = useRef(new Animated.Value(0)).current;
-  const pulseAnim  = useRef(new Animated.Value(1)).current;
-  const streakAnim = useRef(new Animated.Value(-1)).current; // -1 = off-screen left, 1 = off-screen right
+  const flipAnim      = useRef(new Animated.Value(0)).current;
+  const pulseAnim     = useRef(new Animated.Value(1)).current;
+  const streakAnim    = useRef(new Animated.Value(-1)).current;
   const streakOpacity = useRef(new Animated.Value(0)).current;
-  const prevFlashKey = useRef(0);
+  const prevFlashKey  = useRef(0);
   const [flashActive, setFlashActive] = React.useState(false);
 
   // Flip animation
@@ -64,13 +69,11 @@ export default function SingleCard({
       prevFlashKey.current = flashKey;
       setFlashActive(true);
 
-      // Pulse scale
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.15, duration: 150, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1.0,  duration: 450, useNativeDriver: true }),
       ]).start();
 
-      // Diagonal streak: sweep from -1 to +1 across card
       streakAnim.setValue(-1);
       streakOpacity.setValue(0);
       Animated.sequence([
@@ -98,7 +101,6 @@ export default function SingleCard({
   const frontOpacity = flipAnim.interpolate({ inputRange: [0.49, 0.5], outputRange: [0, 1] });
   const backOpacity  = flipAnim.interpolate({ inputRange: [0.49, 0.5], outputRange: [1, 0] });
 
-  // Streak translateX: from -CARD_WIDTH to +CARD_WIDTH
   const streakX = streakAnim.interpolate({
     inputRange: [-1, 1],
     outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
@@ -107,6 +109,12 @@ export default function SingleCard({
   const handlePress = async (): Promise<void> => {
     if (!disabled) handleChoice(card);
     onTap?.();
+
+    // BUG FIX: block sound on covered cards during flip-back animation.
+    // A card is "covered and locked" when it is not flipped AND interaction
+    // is disabled (i.e. the 1-second wrong-match timeout is running).
+    if (!flipped && disabled) return;
+
     try {
       const source = SOUND_REQUIRES[card.soundKey];
       if (source) {
@@ -124,7 +132,18 @@ export default function SingleCard({
   const octaveFontSize = CARD_WIDTH < 55 ? 7 : CARD_WIDTH < 72 ? 10 : 12;
 
   return (
-    <TouchableOpacity onPress={handlePress} activeOpacity={0.85} style={{ margin: 3 }}>
+    <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={0.85}
+      style={{ margin: 3 }}
+      onLayout={(e) => {
+        if (!onRegisterLayout) return;
+        // measure gives page-relative coordinates needed for swipe hit-testing
+        e.target.measure((_x, _y, width, height, pageX, pageY) => {
+          onRegisterLayout({ x: pageX, y: pageY, width, height });
+        });
+      }}
+    >
       <Animated.View style={{ width: CARD_WIDTH, height: CARD_HEIGHT, transform: [{ scale: pulseAnim }] }}>
 
         {/* BACK */}
@@ -137,12 +156,12 @@ export default function SingleCard({
         >
           <Image
             source={require('../assets/imgNotes/cover.png')}
-            style={{ 
-              width: '100%', 
-              height: '100%', 
+            style={{
+              width: '100%',
+              height: '100%',
               borderRadius: 10,
-              borderWidth: 1,        // ← Add this
-              borderColor: '#888', // ← Add this
+              borderWidth: 1,
+              borderColor: levelColor,
             }}
             resizeMode="cover"
           />
@@ -205,6 +224,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backfaceVisibility: 'hidden',
+    backgroundColor: BG_SURFACE,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "NoteNinja",
-    "slug": "music-notes-memory-rn",
+    "slug": "music-notes-training",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
-    "icon": "./assets/cover.icon.png",
+    "icon": "./assets/NoteNinjaIcon.png",
     "userInterfaceStyle": "dark",
      "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/splash-white.png",
       "resizeMode": "contain",
       "backgroundColor": "#1b1523"
     },
