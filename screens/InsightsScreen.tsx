@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { getGameHistory, clearHistory, GameRecord } from '../storage';
@@ -95,6 +96,7 @@ export default function InsightsScreen({ onBack }: Props) {
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [totalGames, setTotalGames] = useState(0);
   const [tab, setTab] = useState<'notes' | 'confused' | 'trend'>('notes');
+  const [showExplain, setShowExplain] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -140,6 +142,9 @@ export default function InsightsScreen({ onBack }: Props) {
     ? trend[trend.length - 1].avgWrong - trend[0].avgWrong
     : 0;
 
+  const trendLabel = trendDir < -0.1 ? '↑ Better' : trendDir > 0.1 ? '↓ Harder' : '→ Stable';
+  const trendColor = trendDir < -0.1 ? '#27ae60' : trendDir > 0.1 ? '#c0392b' : '#aaa';
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -159,7 +164,7 @@ export default function InsightsScreen({ onBack }: Props) {
         <ActivityIndicator color="#c23866" size="large" style={{ marginTop: 60 }} />
       ) : totalGames === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>🎵</Text>
+          <Text style={styles.emptyIcon}>♩</Text>
           <Text style={styles.emptyTitle}>No data yet</Text>
           <Text style={styles.emptyText}>
             Play some games and your ear training progress will appear here.
@@ -180,17 +185,11 @@ export default function InsightsScreen({ onBack }: Props) {
             </View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}>
-              <Text style={[
-                styles.summaryValue,
-                { color: trendDir < -0.1 ? '#27ae60' : trendDir > 0.1 ? '#c0392b' : '#aaa' }
-              ]}>
-                {trendDir < -0.1 ? '↑ Better' : trendDir > 0.1 ? '↓ Harder' : '→ Stable'}
-              </Text>
+              <Text style={[styles.summaryValue, { color: trendColor }]}>{trendLabel}</Text>
               <Text style={styles.summaryLabel}>TREND</Text>
             </View>
           </View>
 
-          {/* Hint */}
           <Text style={styles.tapHint}>Tap any note to hear it</Text>
 
           {/* Tabs */}
@@ -210,7 +209,7 @@ export default function InsightsScreen({ onBack }: Props) {
 
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-            {/* ── Hard Notes tab ── */}
+            {/* Hard Notes tab */}
             {tab === 'notes' && (
               <View style={styles.tabContent}>
                 {hardNotes.length === 0 ? (
@@ -243,7 +242,7 @@ export default function InsightsScreen({ onBack }: Props) {
               </View>
             )}
 
-            {/* ── Confused pairs tab ── */}
+            {/* Confused pairs tab */}
             {tab === 'confused' && (
               <View style={styles.tabContent}>
                 {confusedPairs.length === 0 ? (
@@ -259,7 +258,7 @@ export default function InsightsScreen({ onBack }: Props) {
                         <Text style={styles.noteChipText}>{pair.a}</Text>
                         <Text style={styles.noteChipPlay}>▶</Text>
                       </TouchableOpacity>
-                      <Text style={styles.confusedArrow}>↔</Text>
+                      <Text style={styles.confusedArrow}>⇔</Text>
                       <TouchableOpacity
                         style={[styles.noteChip, { backgroundColor: noteColor(pair.b) }]}
                         onPress={() => playNote(pair.b)}
@@ -278,33 +277,71 @@ export default function InsightsScreen({ onBack }: Props) {
               </View>
             )}
 
-            {/* ── Trend tab ── */}
+            {/* Trend tab */}
             {tab === 'trend' && (
               <View style={styles.tabContent}>
-                <Text style={styles.trendTitle}>Average wrong attempts per game</Text>
-                <Text style={styles.trendSubtitle}>Last {trend.length} games · lower is better</Text>
+
+                {/* Header row: title + explain button */}
+                <View style={styles.trendHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.trendTitle}>Wrong attempts per game</Text>
+                    <Text style={styles.trendSubtitle}>Last {trend.length} games · lower is better</Text>
+                  </View>
+                  <TouchableOpacity style={styles.explainBtn} onPress={() => setShowExplain(true)}>
+                    <Text style={styles.explainBtnText}>?</Text>
+                  </TouchableOpacity>
+                </View>
+
                 {trend.length < 2 ? (
                   <Text style={styles.emptyTabText}>Play at least 2 games to see a trend.</Text>
                 ) : (
-                  <View style={styles.trendChart}>
-                    {trend.map((pt, i) => {
-                      const maxVal = Math.max(...trend.map((t) => t.avgWrong), 1);
-                      const barH = Math.max((pt.avgWrong / maxVal) * 130, 4);
-                      const isLast = i === trend.length - 1;
-                      return (
-                        <View key={i} style={styles.trendBarWrapper}>
-                          <Text style={styles.trendValue}>
-                            {pt.avgWrong > 0 ? pt.avgWrong.toFixed(1) : '✓'}
-                          </Text>
-                          <View style={[
-                            styles.trendBar,
-                            { height: barH, backgroundColor: isLast ? '#f1c40f' : '#8e44ad' },
-                          ]} />
-                          <Text style={styles.trendLabel}>{pt.game}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
+                  <>
+                    {/* Chart */}
+                    <View style={styles.trendChart}>
+                      {trend.map((pt, i) => {
+                        const maxVal = Math.max(...trend.map((t) => t.avgWrong), 1);
+                        const barH = Math.max((pt.avgWrong / maxVal) * 130, 4);
+                        const isLast = i === trend.length - 1;
+                        const firstVal = trend[0].avgWrong;
+                        const barColor = isLast
+                          ? '#ffffff'
+                          : pt.avgWrong < firstVal - 0.1
+                          ? '#27ae60'
+                          : pt.avgWrong > firstVal + 0.1
+                          ? '#c0392b'
+                          : '#888';
+                        return (
+                          <View key={i} style={styles.trendBarWrapper}>
+                            <Text style={styles.trendValue}>
+                              {pt.avgWrong > 0 ? pt.avgWrong.toFixed(1) : '✓'}
+                            </Text>
+                            <View style={[styles.trendBar, { height: barH, backgroundColor: barColor }]} />
+                            <Text style={styles.trendLabel}>{pt.game}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    {/* Color legend */}
+                    <View style={styles.legend}>
+                      <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#27ae60' }]} />
+                        <Text style={styles.legendText}>Better than start</Text>
+                      </View>
+                      <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#c0392b' }]} />
+                        <Text style={styles.legendText}>Harder than start</Text>
+                      </View>
+                      <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#888' }]} />
+                        <Text style={styles.legendText}>Stable</Text>
+                      </View>
+                      <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#ffffff' }]} />
+                        <Text style={styles.legendText}>Latest game</Text>
+                      </View>
+                    </View>
+                  </>
                 )}
               </View>
             )}
@@ -312,6 +349,50 @@ export default function InsightsScreen({ onBack }: Props) {
           </ScrollView>
         </>
       )}
+
+      {/* Explanation modal */}
+      <Modal visible={showExplain} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.explainOverlay}
+          activeOpacity={1}
+          onPress={() => setShowExplain(false)}
+        >
+          <View style={styles.explainBox}>
+            <Text style={styles.explainTitle}>How to read this chart</Text>
+            <Text style={styles.explainText}>
+              Each bar is one game. The height shows your average wrong attempts — the lower, the better.
+            </Text>
+            <Text style={styles.explainText}>
+              Bar colors compare each game to your very first game on this chart:
+            </Text>
+            <View style={styles.explainLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#27ae60' }]} />
+                <Text style={styles.explainLegendText}>Green — fewer mistakes than your first game</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#c0392b' }]} />
+                <Text style={styles.explainLegendText}>Red — more mistakes than your first game</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#888' }]} />
+                <Text style={styles.explainLegendText}>Grey — roughly the same</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#ffffff' }]} />
+                <Text style={styles.explainLegendText}>White — your most recent game</Text>
+              </View>
+            </View>
+            <Text style={styles.explainTip}>
+              Tip: aim for more green bars over time.
+            </Text>
+            <TouchableOpacity style={styles.explainClose} onPress={() => setShowExplain(false)}>
+              <Text style={styles.explainCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -338,8 +419,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#251d30',
     marginHorizontal: 12,
     borderRadius: 12,
-    marginBottom: 10,
-    borderColor: '#888',
+    marginBottom: 40,
+    marginTop: 20,
+    borderColor: '#8e44ad',
     borderWidth: 1,
   },
   summaryItem: { alignItems: 'center', flex: 1 },
@@ -356,77 +438,115 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     marginHorizontal: 12,
-    marginBottom: 12,
+    marginBottom: 15,
     gap: 8,
   },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: '#251d30', borderWidth: 1.5, borderColor: '#8e44ad22' },
-  tabActive: { backgroundColor: '#251d30', borderColor: '#888' },
+  tabActive: { backgroundColor: '#251d30', borderColor: '#8e44ad' },
   tabText: { color: '#888', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   tabTextActive: { color: '#fff', letterSpacing: 0.5 },
   scrollContent: { paddingHorizontal: 12, paddingBottom: 40 },
-  tabContent: { paddingTop: 4 },
+  tabContent: { paddingTop: 10 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyIcon: { fontSize: 52, marginBottom: 16 },
   emptyTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 12 },
   emptyText: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22 },
   emptyTabText: { color: '#666', textAlign: 'center', marginTop: 48, fontSize: 14 },
-  noteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-    gap: 10,
-  },
+  noteRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   noteChip: {
-    width: 56,
-    height: 40,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    width: 56, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.3, shadowRadius: 3,
   },
   noteChipText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   noteChipPlay: { color: 'rgba(255,255,255,0.5)', fontSize: 8, marginTop: 1 },
-  noteBarContainer: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#251d30',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
+  noteBarContainer: { flex: 1, height: 8, backgroundColor: '#251d30', borderRadius: 4, overflow: 'hidden' },
   noteBar: { height: '100%', borderRadius: 4 },
   noteStatRight: { alignItems: 'flex-end', minWidth: 76 },
   diffLabel: { fontSize: 12, fontWeight: 'bold' },
   avgText: { fontSize: 10, color: '#666', marginTop: 1 },
-  confusedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-    gap: 10,
-  },
+  confusedRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   confusedArrow: { color: '#555', fontSize: 20 },
   confusedCountBox: { marginLeft: 'auto', alignItems: 'flex-end' },
   confusedCount: { color: '#f1c40f', fontWeight: 'bold', fontSize: 15 },
   confusedCountLabel: { color: '#666', fontSize: 9, letterSpacing: 0.5 },
-  trendTitle: { color: '#fff', fontSize: 15, fontWeight: '600', textAlign: 'center', marginBottom: 4 },
-  trendSubtitle: { color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 20 },
+
+  // Trend tab
+  trendHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  trendTitle: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 2 },
+  trendSubtitle: { color: '#888', fontSize: 11 },
+  explainBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#8e44ad',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+  explainBtnText: { color: '#8e44ad', fontSize: 14, fontWeight: 'bold' },
   trendChart: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    height: 180,
+    height: 220,
     gap: 4,
     paddingBottom: 28,
     backgroundColor: '#251d30',
     borderRadius: 12,
     paddingTop: 16,
     paddingHorizontal: 12,
+    marginBottom: 16,
   },
   trendBarWrapper: { alignItems: 'center', justifyContent: 'flex-end', flex: 1 },
   trendBar: { width: '80%', borderRadius: 4, marginBottom: 4 },
   trendValue: { fontSize: 7, color: '#888', marginBottom: 3 },
   trendLabel: { fontSize: 7, color: '#555', marginTop: 3 },
+
+  // Legend
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 8,
+  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { color: '#888', fontSize: 11 },
+
+  // Explanation modal
+  explainOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  explainBox: {
+    backgroundColor: '#251d30',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#8e44ad',
+  },
+  explainTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 12, textAlign: 'center' },
+  explainText: { color: '#aaa', fontSize: 13, lineHeight: 20, marginBottom: 10 },
+  explainLegend: { marginVertical: 8, gap: 8 },
+  explainLegendText: { color: '#aaa', fontSize: 13 },
+  explainTip: { color: '#27ae60', fontSize: 12, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
+  explainClose: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#8e44ad',
+    alignItems: 'center',
+  },
+  explainCloseText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

@@ -6,13 +6,20 @@ import {
   Animated,
   StyleSheet,
   Dimensions,
-  View,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { NoteCard, SOUND_REQUIRES } from '../notes';
 import { BG_SURFACE } from '../theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+
+function lighten(hex: string, amount: number): string {
+  const num = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, (num >> 16) + amount);
+  const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+  const b = Math.min(255, (num & 0xff) + amount);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 interface Props {
   readonly card: NoteCard;
@@ -110,9 +117,7 @@ export default function SingleCard({
     if (!disabled) handleChoice(card);
     onTap?.();
 
-    // BUG FIX: block sound on covered cards during flip-back animation.
-    // A card is "covered and locked" when it is not flipped AND interaction
-    // is disabled (i.e. the 1-second wrong-match timeout is running).
+    // Block sound on covered cards during flip-back animation
     if (!flipped && disabled) return;
 
     try {
@@ -130,6 +135,7 @@ export default function SingleCard({
   const showBorder = flashActive || highlighted;
   const fontSize = CARD_WIDTH < 55 ? 10 : CARD_WIDTH < 72 ? 14 : 18;
   const octaveFontSize = CARD_WIDTH < 55 ? 7 : CARD_WIDTH < 72 ? 10 : 12;
+  const ninjaColor = lighten(levelColor, 90);
 
   return (
     <TouchableOpacity
@@ -138,7 +144,6 @@ export default function SingleCard({
       style={{ margin: 3 }}
       onLayout={(e) => {
         if (!onRegisterLayout) return;
-        // measure gives page-relative coordinates needed for swipe hit-testing
         e.target.measure((_x, _y, width, height, pageX, pageY) => {
           onRegisterLayout({ x: pageX, y: pageY, width, height });
         });
@@ -150,20 +155,22 @@ export default function SingleCard({
         <Animated.View
           style={[
             styles.card,
-            { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 10 },
+            {
+              width: CARD_WIDTH,
+              height: CARD_HEIGHT,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: levelColor,
+              overflow: 'hidden',
+            },
             { transform: [{ rotateY: backRotate }], opacity: backOpacity },
           ]}
         >
           <Image
-            source={require('../assets/imgNotes/cover.png')}
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: levelColor,
-            }}
-            resizeMode="cover"
+            source={require('../assets/imgNotes/ninja_cover_card.png')}
+            style={{ width: '85%', height: '85%' }}
+            //style={{ width: '85%', height: '85%', tintColor: ninjaColor }}
+            resizeMode="contain"
           />
         </Animated.View>
 

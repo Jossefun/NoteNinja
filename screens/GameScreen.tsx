@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import SingleCard from '../components/SingleCard';
-import { LEVEL_CONFIG, NoteCard, LevelKey, ModeKey, SOUND_REQUIRES } from '../notes';
+import { LEVEL_CONFIG, NoteCard, LevelKey, ModeKey, SOUND_REQUIRES, buildSenseiPool } from '../notes';
 import {
   calcScore,
   getBestScore,
@@ -26,10 +26,11 @@ import {
   resetStreak,
   saveGameRecord,
   NoteAttempt,
+  SenseiConfig,
 } from '../storage';
 import { BG_DEEP, BG_SURFACE, ACCENT_PURPLE, LEVEL_COLORS, LEVEL_TITLES } from '../theme';
 
-const COLUMNS: Record<LevelKey, number> = { easy: 4, medium: 4, hard: 5 };
+const COLUMNS: Record<LevelKey, number> = { easy: 4, medium: 4, hard: 5, sensei: 5 };
 const REPLAY_DELAY_MS = 300;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -92,12 +93,13 @@ Rules:
 interface Props {
   readonly level: LevelKey;
   readonly mode: ModeKey;
+  readonly senseiConfig?: SenseiConfig;
   readonly onBackToMenu: () => void;
   readonly onBackToMode: () => void;
   readonly onShowInsights: () => void;
 }
 
-export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, onShowInsights }: Props) {
+export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, onBackToMode, onShowInsights }: Props) {
   // Game state
   const [cards, setCards] = useState<NoteCard[]>([]);
   const [turns, setTurns] = useState(0);
@@ -178,7 +180,16 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
     }
   };
 
-  const config = LEVEL_CONFIG[level];
+  // Build config: sensei uses dynamic pool, others use LEVEL_CONFIG
+  const config = level === 'sensei' && senseiConfig
+    ? {
+        pool: buildSenseiPool(senseiConfig.octaves, senseiConfig.includeFlats),
+        pairs: senseiConfig.pairs,
+        label: 'Sensei',
+        randomize: true,
+      }
+    : LEVEL_CONFIG[level as Exclude<LevelKey, 'sensei'>];
+
   const numColumns = COLUMNS[level];
   const soundOnly = mode === 'sound';
   const levelColor = LEVEL_COLORS[level];
@@ -388,7 +399,7 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
         </TouchableOpacity>
         <View style={styles.titleRow}>
           <Image
-            source={require('../assets/imgNotes/cover.png')}
+            source={require('../assets/imgNotes/ninja_cover_card.png')}
             style={styles.titleIcon}
             resizeMode="contain"
           />
@@ -397,8 +408,14 @@ export default function GameScreen({ level, mode, onBackToMenu, onBackToMode, on
           </Text>
         </View>
         <View style={styles.headerRight}>
-          <Text style={[styles.levelBadge, { color: levelColor }]}>{config.label}</Text>
-          <Text style={styles.modeBadge}>{soundOnly ? '♫' : '♩'}</Text>
+          <Image
+            source={soundOnly
+              ? require('../assets/imgNotes/sound_only.png')
+              : require('../assets/imgNotes/letter_sound.png')
+            }
+            style={{ width: 32, height: 32, tintColor: levelColor }}
+            resizeMode="contain"
+          />
         </View>
       </View>
 
@@ -578,9 +595,7 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   titleIcon: { width: 28, height: 42 },
   title: { fontSize: 20, fontWeight: 'bold', letterSpacing: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', minWidth: 60, justifyContent: 'flex-end' },
-  levelBadge: { fontSize: 13, fontWeight: '600' },
-  modeBadge: { fontSize: 16, marginLeft: 6 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', minWidth: 40, justifyContent: 'flex-end' },
   statsBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',

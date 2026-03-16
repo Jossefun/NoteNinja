@@ -32,6 +32,11 @@ const LEVELS: LevelOption[] = [
     label: 'Hard',
     description: '14 pairs  ·  Naturals + Flats  ·  Octaves 3–6',
   },
+  {
+    key: 'sensei',
+    label: 'Sensei',
+    description: 'Custom pairs, octaves & flats  ·  Your rules',
+  },
 ];
 
 interface Props {
@@ -87,7 +92,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingBottom: 32,
+    paddingBottom: 24,
   },
   appTitle: {
     fontSize: 38,
@@ -104,24 +109,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cardsSection: {
-    flex: 2,
+    flex: 3,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 2,
     borderRadius: 14,
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 20,
     backgroundColor: BG_SURFACE,
     width: '78%',
   },
-  cardRight: {
-    flex: 1,
-  },
+  cardRight: { flex: 1 },
   levelLabel: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -129,7 +132,7 @@ const styles = StyleSheet.create({
   },
   levelDesc: {
     fontSize: 12,
-    color: '#fff',
+    color: '#aaa',
     letterSpacing: 0.3,
   },
   bottomSection: {

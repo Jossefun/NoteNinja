@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LevelKey, ModeKey } from './notes';
+import { LevelKey, ModeKey, Octave } from './notes';
 
+// ── Score ──────────────────────────────────────────────────────────
 // Score = turns * 10 + seconds (lower is better)
 export function calcScore(turns: number, seconds: number): number {
   return turns * 10 + seconds;
@@ -10,10 +11,7 @@ function scoreKey(level: LevelKey, mode: ModeKey): string {
   return `bestScore:${level}:${mode}`;
 }
 
-export async function getBestScore(
-  level: LevelKey,
-  mode: ModeKey
-): Promise<number | null> {
+export async function getBestScore(level: LevelKey, mode: ModeKey): Promise<number | null> {
   try {
     const val = await AsyncStorage.getItem(scoreKey(level, mode));
     return val !== null ? parseInt(val, 10) : null;
@@ -23,11 +21,7 @@ export async function getBestScore(
 }
 
 // Returns true if this is a new best
-export async function saveBestScore(
-  level: LevelKey,
-  mode: ModeKey,
-  score: number
-): Promise<boolean> {
+export async function saveBestScore(level: LevelKey, mode: ModeKey, score: number): Promise<boolean> {
   try {
     const current = await getBestScore(level, mode);
     if (current === null || score < current) {
@@ -40,6 +34,7 @@ export async function saveBestScore(
   }
 }
 
+// ── Streak ────────────────────────────────────────────────────────
 export async function getStreak(): Promise<number> {
   try {
     const val = await AsyncStorage.getItem('winStreak');
@@ -66,18 +61,45 @@ export async function resetStreak(): Promise<void> {
   } catch {}
 }
 
-// ─────────────────────────────────────────────
-//  Insights tracking
-// ─────────────────────────────────────────────
+// ── Sensei config persistence ─────────────────────────────────────
+export interface SenseiConfig {
+  pairs: number;
+  octaves: Octave[];
+  includeFlats: boolean;
+}
 
+const DEFAULT_SENSEI_CONFIG: SenseiConfig = {
+  pairs: 7,
+  octaves: [4],
+  includeFlats: false,
+};
+
+const SENSEI_CONFIG_KEY = 'senseiConfig';
+
+export async function getSenseiConfig(): Promise<SenseiConfig> {
+  try {
+    const raw = await AsyncStorage.getItem(SENSEI_CONFIG_KEY);
+    return raw ? JSON.parse(raw) : DEFAULT_SENSEI_CONFIG;
+  } catch {
+    return DEFAULT_SENSEI_CONFIG;
+  }
+}
+
+export async function saveSenseiConfig(config: SenseiConfig): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SENSEI_CONFIG_KEY, JSON.stringify(config));
+  } catch {}
+}
+
+// ── Insights tracking ─────────────────────────────────────────────
 export interface NoteAttempt {
-  note: string;       // soundKey e.g. "C4"
-  wrong: number;      // wrong attempts before matching
-  confusedWith: string[]; // soundKeys of wrong guesses
+  note: string;
+  wrong: number;
+  confusedWith: string[];
 }
 
 export interface GameRecord {
-  ts: number;         // timestamp
+  ts: number;
   level: string;
   mode: string;
   notes: NoteAttempt[];
@@ -91,7 +113,6 @@ export async function saveGameRecord(record: GameRecord): Promise<void> {
     const raw = await AsyncStorage.getItem(INSIGHTS_KEY);
     const history: GameRecord[] = raw ? JSON.parse(raw) : [];
     history.push(record);
-    // Keep last MAX_RECORDS only
     if (history.length > MAX_RECORDS) history.splice(0, history.length - MAX_RECORDS);
     await AsyncStorage.setItem(INSIGHTS_KEY, JSON.stringify(history));
   } catch {}

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   View,
   Text,
+  Image,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
@@ -13,7 +14,6 @@ import { BG_DEEP, BG_SURFACE, LEVEL_COLORS } from '../theme';
 interface ModeOption {
   key: ModeKey;
   label: string;
-  icon: string;
   description: string;
   color: string;
 }
@@ -22,14 +22,12 @@ const MODES: ModeOption[] = [
   {
     key: 'normal',
     label: 'Normal',
-    icon: '♩',
     description: 'Cards show the note name.\nMatch by sight and sound.',
     color: '#509fd4',
   },
   {
     key: 'sound',
     label: 'Sound Only',
-    icon: '♫',
     description: 'Cards show no note name.\nMatch purely by ear.',
     color: '#ae61cf',
   },
@@ -71,7 +69,14 @@ export default function ModeSelect({ level, onSelect, onBack }: Props) {
             activeOpacity={0.75}
           >
             <View style={[styles.iconContainer, { backgroundColor: mode.color + '22' }]}>
-              <Text style={styles.icon}>{mode.icon}</Text>
+              <Image
+                source={mode.key === 'sound'
+                  ? require('../assets/imgNotes/sound_only.png')
+                  : require('../assets/imgNotes/letter_sound.png')
+                }
+                style={{ width: 36, height: 36, tintColor: mode.color }}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.cardContent}>
               <Text style={[styles.modeLabel, { color: mode.color }]}>{mode.label}</Text>
@@ -147,13 +152,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  icon: {
-    fontSize: 28,
-    color: '#fff',
-  },
-  cardContent: {
-    flex: 1,
-  },
+  cardContent: { flex: 1 },
   modeLabel: {
     fontSize: 20,
     fontWeight: 'bold',
