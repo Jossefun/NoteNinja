@@ -39,10 +39,14 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
     });
   }, []);
 
-  // Compute available pool size
+  // Compute available pool size and auto-clamp pairs if pool shrinks
   useEffect(() => {
     const notesPerOctave = 7 + (includeFlats ? 5 : 0);
-    setPoolSize(octaves.length * notesPerOctave);
+    const newPoolSize = octaves.length * notesPerOctave;
+    setPoolSize(newPoolSize);
+    if (pairs > newPoolSize) {
+      setPairs(Math.max(MIN_PAIRS, newPoolSize));
+    }
   }, [octaves, includeFlats]);
 
   const toggleOctave = (oct: Octave) => {

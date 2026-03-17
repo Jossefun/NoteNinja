@@ -8,8 +8,9 @@ import {
   Dimensions,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import { NoteCard, SOUND_REQUIRES } from '../notes';
+import { NoteCard } from '../notes';
 import { BG_SURFACE } from '../theme';
+import { playSound } from '../audio';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -29,6 +30,7 @@ interface Props {
   readonly numColumns: number;
   readonly cardHeight?: number;
   readonly soundOnly: boolean;
+  readonly trueSound?: boolean;
   readonly highlighted?: boolean;
   readonly flashKey?: number;
   readonly onTap?: () => void;
@@ -44,6 +46,7 @@ export default function SingleCard({
   numColumns,
   cardHeight,
   soundOnly,
+  trueSound = false,
   highlighted = false,
   flashKey = 0,
   onTap,
@@ -113,29 +116,20 @@ export default function SingleCard({
     outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
   });
 
-  const handlePress = async (): Promise<void> => {
+  const handlePress = (): void => {
     if (!disabled) handleChoice(card);
     onTap?.();
 
     // Block sound on covered cards during flip-back animation
     if (!flipped && disabled) return;
 
-    try {
-      const source = SOUND_REQUIRES[card.soundKey];
-      if (source) {
-        const { sound } = await Audio.Sound.createAsync(source);
-        await sound.playAsync();
-        sound.setOnPlaybackStatusUpdate((s) => {
-          if (s.isLoaded && s.didJustFinish) sound.unloadAsync();
-        });
-      }
-    } catch (_) {}
+    playSound(card.soundKey);
   };
 
   const showBorder = flashActive || highlighted;
   const fontSize = CARD_WIDTH < 55 ? 10 : CARD_WIDTH < 72 ? 14 : 18;
   const octaveFontSize = CARD_WIDTH < 55 ? 7 : CARD_WIDTH < 72 ? 10 : 12;
-  const ninjaColor = lighten(levelColor, 90);
+  const ninjaColor = lighten(levelColor, 60);
 
   return (
     <TouchableOpacity
@@ -168,8 +162,7 @@ export default function SingleCard({
         >
           <Image
             source={require('../assets/imgNotes/ninja_cover_card.png')}
-            style={{ width: '85%', height: '85%' }}
-            //style={{ width: '85%', height: '85%', tintColor: ninjaColor }}
+            style={{ width: '85%', height: '85%', tintColor: ninjaColor }}
             resizeMode="contain"
           />
         </Animated.View>
@@ -182,7 +175,7 @@ export default function SingleCard({
               width: CARD_WIDTH,
               height: CARD_HEIGHT,
               borderRadius: 10,
-              backgroundColor: card.color,
+              backgroundColor: trueSound ? BG_SURFACE : card.color,
               borderColor: showBorder ? '#ffffff' : 'rgba(255,255,255,0.2)',
               borderWidth: showBorder ? 3 : 2,
               overflow: 'hidden',

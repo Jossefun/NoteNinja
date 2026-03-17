@@ -13,14 +13,16 @@ import {
   ScrollView,
   Dimensions,
   PanResponder,
+  Animated,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import SingleCard from '../components/SingleCard';
-import { LEVEL_CONFIG, NoteCard, LevelKey, ModeKey, SOUND_REQUIRES, buildSenseiPool } from '../notes';
+import { LEVEL_CONFIG, NoteCard, LevelKey, ModeKey, buildSenseiPool } from '../notes';
 import {
   calcScore,
   getBestScore,
   saveBestScore,
+  getScoreRank,
   getStreak,
   incrementStreak,
   resetStreak,
@@ -29,6 +31,7 @@ import {
   SenseiConfig,
 } from '../storage';
 import { BG_DEEP, BG_SURFACE, ACCENT_PURPLE, LEVEL_COLORS, LEVEL_TITLES } from '../theme';
+import { playSound } from '../audio';
 
 const COLUMNS: Record<LevelKey, number> = { easy: 4, medium: 4, hard: 5, sensei: 5 };
 const REPLAY_DELAY_MS = 300;
@@ -49,17 +52,6 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-async function playSound(soundKey: string): Promise<void> {
-  try {
-    const source = SOUND_REQUIRES[soundKey];
-    if (!source) return;
-    const { sound } = await Audio.Sound.createAsync(source);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((s) => {
-      if (s.isLoaded && s.didJustFinish) sound.unloadAsync();
-    });
-  } catch (_) {}
-}
 
 async function composeMelody(notes: string[]): Promise<MelodyNote[]> {
   const prompt = `You are a music composer. The player matched these notes in a memory game: ${notes.join(', ')}.
@@ -90,6 +82,12 @@ Rules:
   return JSON.parse(text.trim()) as MelodyNote[];
 }
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
 interface Props {
   readonly level: LevelKey;
   readonly mode: ModeKey;
@@ -103,6 +101,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   // Game state
   const [cards, setCards] = useState<NoteCard[]>([]);
   const [turns, setTurns] = useState(0);
+  const turnsRef = useRef(0);
   const [choiceOne, setChoiceOne] = useState<NoteCard | null>(null);
   const [choiceTwo, setChoiceTwo] = useState<NoteCard | null>(null);
   const [disabled, setDisabled] = useState(false);
@@ -116,13 +115,17 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   // Timer
   const [seconds, setSeconds] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [paused, setPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const blinkAnim = useRef(new Animated.Value(1)).current;
+  const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Score & streak
   const [score, setScore] = useState<number | null>(null);
   const [bestScore, setBestScore] = useState<number | null>(null);
   const [isNewBest, setIsNewBest] = useState(false);
   const [streak, setStreak] = useState(0);
+  const [scoreRank, setScoreRank] = useState<{ rank: number; total: number } | null>(null);
 
   // Match tracking
   const [matchOrder, setMatchOrder] = useState<string[]>([]);
@@ -133,6 +136,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   const [isComposing, setIsComposing] = useState(false);
   const [highlightedSoundKey, setHighlightedSoundKey] = useState<string | null>(null);
   const replayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const [showNotepad, setShowNotepad] = useState(false);
 
@@ -192,7 +196,10 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
 
   const numColumns = COLUMNS[level];
   const soundOnly = mode === 'sound';
+  const colorMode = mode === 'color';
+  const hideNoteName = soundOnly || colorMode;
   const levelColor = LEVEL_COLORS[level];
+  const modeColor = mode === 'normal' ? '#509fd4' : mode === 'color' ? '#ae61cf' : '#e67e22';
 
   // Card sizing: fit all rows within available screen height
   const UI_CHROME = 204;
@@ -222,6 +229,31 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [timerActive]);
 
+  // Blink animation while paused
+  useEffect(() => {
+    if (paused) {
+      blinkRef.current = setInterval(() => {
+        blinkAnim.setValue(0);
+        setTimeout(() => blinkAnim.setValue(1), 400);
+      }, 1000);
+    } else {
+      if (blinkRef.current) clearInterval(blinkRef.current);
+      blinkAnim.setValue(1);
+    }
+    return () => { if (blinkRef.current) clearInterval(blinkRef.current); };
+  }, [paused]);
+
+  const handleTimerTap = (): void => {
+    if (!timerActive && !paused) return; // timer hasn't started yet
+    if (paused) {
+      setPaused(false);
+      setTimerActive(true);
+    } else {
+      setPaused(true);
+      setTimerActive(false);
+    }
+  };
+
   const shuffleCards = useCallback((): void => {
     const selected = config.randomize
       ? pickRandom<NoteCard>(config.pool, config.pairs)
@@ -235,11 +267,14 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     setChoiceTwo(null);
     setCards(shuffled);
     setTurns(0);
+    turnsRef.current = 0;
     setWon(false);
     setScore(null);
     setIsNewBest(false);
+    setScoreRank(null);
     setSeconds(0);
     setTimerActive(false);
+    setPaused(false);
     setMatchOrder([]);
     setMatchedCards([]);
     setFlashKeys({});
@@ -255,6 +290,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   }, [config]);
 
   const handleChoice = (card: NoteCard): void => {
+    if (paused) return;
     if (choiceOne && choiceOne.id === card.id) return;
     if (!choiceOne && !timerActive) setTimerActive(true);
     choiceOne ? setChoiceTwo(card) : setChoiceOne(card);
@@ -297,11 +333,14 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
 
   const handleWin = async (finalMatchOrder: string[]): Promise<void> => {
     setTimerActive(false);
-    const finalScore = calcScore(turns + 1, seconds);
+    setPaused(false);
+    const finalScore = calcScore(turnsRef.current, seconds);
     setScore(finalScore);
     const newBest = await saveBestScore(level, mode, finalScore);
     setIsNewBest(newBest);
     if (newBest) setBestScore(finalScore);
+    const rank = await getScoreRank(level, mode, finalScore);
+    setScoreRank(rank);
     const newStreak = await incrementStreak();
     setStreak(newStreak);
     const noteAttempts: NoteAttempt[] = finalMatchOrder.map((note) => ({
@@ -369,14 +408,20 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   const resetTurn = (): void => {
     setChoiceOne(null);
     setChoiceTwo(null);
-    setTurns((prev) => prev + 1);
+    setTurns((prev) => {
+      turnsRef.current = prev + 1;
+      return prev + 1;
+    });
     setDisabled(false);
   };
 
   const handleNewGame = async (): Promise<void> => {
     await resetStreak();
     setStreak(0);
-    shuffleCards();
+    Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      shuffleCards();
+      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    });
   };
 
   // Init on level/mode change, cleanup on unmount
@@ -385,6 +430,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     return () => {
       if (replayRef.current) clearTimeout(replayRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
+      if (blinkRef.current) clearInterval(blinkRef.current);
     };
   }, [level, mode]);
 
@@ -398,24 +444,27 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
           <Text style={styles.backBtnText}>← Mode</Text>
         </TouchableOpacity>
         <View style={styles.titleRow}>
-          <Image
-            source={require('../assets/imgNotes/ninja_cover_card.png')}
-            style={styles.titleIcon}
-            resizeMode="contain"
-          />
           <Text style={[styles.title, { color: levelColor }]}>
             {LEVEL_TITLES[level]}
           </Text>
         </View>
         <View style={styles.headerRight}>
-          <Image
-            source={soundOnly
-              ? require('../assets/imgNotes/sound_only.png')
-              : require('../assets/imgNotes/letter_sound.png')
-            }
-            style={{ width: 32, height: 32, tintColor: levelColor }}
-            resizeMode="contain"
-          />
+          {soundOnly ? (
+            <Image
+              source={require('../assets/imgNotes/sound_only.png')}
+              style={{ width: 32, height: 32, tintColor: modeColor }}
+              resizeMode="contain"
+            />
+          ) : (
+            <Image
+              source={colorMode
+                ? require('../assets/imgNotes/color_and_sound.png')
+                : require('../assets/imgNotes/letter_sound.png')
+              }
+              style={{ width: 32, height: 32, tintColor: modeColor }}
+              resizeMode="contain"
+            />
+          )}
         </View>
       </View>
 
@@ -425,10 +474,12 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
           <Text style={styles.statLabel}>TURNS</Text>
           <Text style={styles.statValue}>{turns}</Text>
         </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>TIME</Text>
-          <Text style={styles.statValue}>{formatTime(seconds)}</Text>
-        </View>
+        <TouchableOpacity style={styles.statItem} onPress={handleTimerTap} activeOpacity={0.7}>
+          <Text style={styles.statLabel}>{paused ? 'PAUSED' : 'TIME'}</Text>
+          <Animated.Text style={[styles.statValue, { opacity: blinkAnim }]}>
+            {formatTime(seconds)}
+          </Animated.Text>
+        </TouchableOpacity>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>STREAK</Text>
           <Text style={styles.statValue}>{streak}</Text>
@@ -440,7 +491,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
       </View>
 
       {/* Card grid — PanResponder active in playingNotes mode */}
-      <View style={styles.flatList} {...panResponder.panHandlers}>
+      <Animated.View style={[styles.flatList, { opacity: fadeAnim }]} {...panResponder.panHandlers}>
         <FlatList<NoteCard>
           data={cards}
           keyExtractor={(item) => item.id ?? item.soundKey}
@@ -455,7 +506,8 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
               disabled={disabled}
               numColumns={numColumns}
               cardHeight={cardSize}
-              soundOnly={soundOnly}
+              soundOnly={hideNoteName}
+              trueSound={soundOnly}
               highlighted={isReplaying && item.soundKey === highlightedSoundKey}
               flashKey={(flashKeys[item.soundKey] ?? 0) + (tapFlashKeys[item.id ?? ''] ?? 0)}
               onTap={() => {
@@ -470,7 +522,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
           )}
           contentContainerStyle={styles.grid}
         />
-      </View>
+      </Animated.View>
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -491,6 +543,11 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
             <Text style={[styles.modalTitle, { color: levelColor }]}>
               {isNewBest ? '★ New Best!' : 'You won!'}
             </Text>
+            {scoreRank && !isNewBest && (
+              <Text style={styles.rankText}>
+                {ordinal(scoreRank.rank)} best of {scoreRank.total} games
+              </Text>
+            )}
             <View style={styles.scoreGrid}>
               <View style={styles.scoreItem}>
                 <Text style={styles.scoreLabel}>TURNS</Text>
@@ -527,7 +584,12 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
             >
               <Text style={styles.modalBtnText}>Play Your Notes</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnNewGame]} onPress={shuffleCards}>
+            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnNewGame]} onPress={() => {
+              Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+                shuffleCards();
+                Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+              });
+            }}>
               <Text style={styles.modalBtnText}>New Game</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={onBackToMenu}>
@@ -593,7 +655,6 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 6, paddingHorizontal: 10 },
   backBtnText: { color: '#aaa', fontSize: 14 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  titleIcon: { width: 28, height: 42 },
   title: { fontSize: 20, fontWeight: 'bold', letterSpacing: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', minWidth: 40, justifyContent: 'flex-end' },
   statsBar: {
@@ -652,7 +713,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  modalTitle: { fontSize: 26, fontWeight: 'bold', marginBottom: 20 },
+  modalTitle: { fontSize: 26, fontWeight: 'bold', marginBottom: 8 },
+  rankText: { color: '#aaa', fontSize: 12, marginBottom: 14, letterSpacing: 0.5 },
   scoreGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', width: '100%', marginBottom: 12 },
   scoreItem: { alignItems: 'center', width: '45%', marginBottom: 14 },
   scoreLabel: { fontSize: 10, color: '#888', letterSpacing: 1, marginBottom: 3 },

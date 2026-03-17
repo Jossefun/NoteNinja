@@ -16,20 +16,30 @@ interface ModeOption {
   label: string;
   description: string;
   color: string;
+  useImage: boolean;
 }
 
 const MODES: ModeOption[] = [
   {
     key: 'normal',
     label: 'Normal',
-    description: 'Cards show the note name.\nMatch by sight and sound.',
+    description: 'Note name, color & sound.\nMatch by sight and ear.',
     color: '#509fd4',
+    useImage: true,
+  },
+  {
+    key: 'color',
+    label: 'Color & Sound',
+    description: 'Color and sound only.\nNo note name shown.',
+    color: '#ae61cf',
+    useImage: true,
   },
   {
     key: 'sound',
     label: 'Sound Only',
-    description: 'Cards show no note name.\nMatch purely by ear.',
-    color: '#ae61cf',
+    description: 'Sound only, no color hints.\nPure ear training.',
+    color: '#e67e22',
+    useImage: true,
   },
 ];
 
@@ -69,14 +79,20 @@ export default function ModeSelect({ level, onSelect, onBack }: Props) {
             activeOpacity={0.75}
           >
             <View style={[styles.iconContainer, { backgroundColor: mode.color + '22' }]}>
-              <Image
-                source={mode.key === 'sound'
-                  ? require('../assets/imgNotes/sound_only.png')
-                  : require('../assets/imgNotes/letter_sound.png')
-                }
-                style={{ width: 36, height: 36, tintColor: mode.color }}
-                resizeMode="contain"
-              />
+              {mode.useImage ? (
+                <Image
+                  source={mode.key === 'normal'
+                    ? require('../assets/imgNotes/letter_sound.png')
+                    : mode.key === 'color'
+                    ? require('../assets/imgNotes/color_and_sound.png')
+                    : require('../assets/imgNotes/sound_only.png')
+                  }
+                  style={{ width: 36, height: 36, tintColor: mode.color }}
+                  resizeMode="contain"
+                />
+              ) : (
+                <Text style={{ fontSize: 28, color: mode.color }}>♪</Text>
+              )}
             </View>
             <View style={styles.cardContent}>
               <Text style={[styles.modeLabel, { color: mode.color }]}>{mode.label}</Text>
@@ -139,7 +155,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderRadius: 16,
-    paddingVertical: 24,
+    paddingVertical: 18,
     paddingHorizontal: 20,
     backgroundColor: BG_SURFACE,
     gap: 16,

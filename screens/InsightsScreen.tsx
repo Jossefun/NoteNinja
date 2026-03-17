@@ -8,17 +8,18 @@ import {
   SafeAreaView,
   StatusBar,
   ActivityIndicator,
-  Alert,
   Modal,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { getGameHistory, clearHistory, GameRecord } from '../storage';
-import { NOTE_COLORS, SOUND_REQUIRES } from '../notes';
+import { NOTE_COLORS } from '../notes';
+import { playSound } from '../audio';
+import { BG_DEEP, BG_SURFACE, ACCENT_PURPLE } from '../theme';
 
 interface NoteStats {
   note: string;
   totalWrong: number;
   appearances: number;
+  wrongAppearances: number;
   avgWrong: number;
   confusedWith: Record<string, number>;
 }
@@ -38,10 +39,11 @@ function buildStats(history: GameRecord[]): {
   history.forEach((record) => {
     record.notes.forEach((n) => {
       if (!map[n.note]) {
-        map[n.note] = { note: n.note, totalWrong: 0, appearances: 0, avgWrong: 0, confusedWith: {} };
+        map[n.note] = { note: n.note, totalWrong: 0, appearances: 0, wrongAppearances: 0, avgWrong: 0, confusedWith: {} };
       }
       map[n.note].totalWrong += n.wrong;
       map[n.note].appearances += 1;
+      if (n.wrong > 0) map[n.note].wrongAppearances += 1;
       n.confusedWith.forEach((c) => {
         map[n.note].confusedWith[c] = (map[n.note].confusedWith[c] ?? 0) + 1;
       });
@@ -68,22 +70,10 @@ function noteColor(note: string): string {
 }
 
 function difficultyLabel(avg: number): { label: string; color: string } {
-  if (avg === 0) return { label: 'Perfect', color: '#27ae60' };
-  if (avg < 1)   return { label: 'Good',    color: '#2980b9' };
-  if (avg < 2)   return { label: 'OK',      color: '#e67e22' };
-  return           { label: 'Hard',    color: '#c0392b' };
-}
-
-async function playNote(soundKey: string): Promise<void> {
-  try {
-    const source = SOUND_REQUIRES[soundKey];
-    if (!source) return;
-    const { sound } = await Audio.Sound.createAsync(source);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((s) => {
-      if (s.isLoaded && s.didJustFinish) sound.unloadAsync();
-    });
-  } catch (_) {}
+  if (avg < 1)  return { label: 'Sharp',  color: '#27ae60' };
+  if (avg < 2)  return { label: 'Good',   color: '#2980b9' };
+  if (avg < 4)  return { label: 'OK',     color: '#e67e22' };
+  return          { label: 'Hard',   color: '#c0392b' };
 }
 
 interface Props {
@@ -97,10 +87,17 @@ export default function InsightsScreen({ onBack }: Props) {
   const [totalGames, setTotalGames] = useState(0);
   const [tab, setTab] = useState<'notes' | 'confused' | 'trend'>('notes');
   const [showExplain, setShowExplain] = useState(false);
+  const [showExplainNotes, setShowExplainNotes] = useState(false);
+  const [showExplainConfused, setShowExplainConfused] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [noteSort, setNoteSort] = useState<'wrong' | 'clean'>('wrong');
+  const [modeFilter, setModeFilter] = useState<'all' | 'normal' | 'color' | 'sound'>('all');
+  const [fullHistory, setFullHistory] = useState<GameRecord[]>([]);
 
   const load = async () => {
     setLoading(true);
     const history = await getGameHistory();
+    setFullHistory(history);
     const result = buildStats(history);
     setNoteStats(result.noteStats);
     setTrend(result.trend);
@@ -110,16 +107,27 @@ export default function InsightsScreen({ onBack }: Props) {
 
   useEffect(() => { load(); }, []);
 
-  const handleClear = () => {
-    Alert.alert('Reset Insights', 'This will delete all your progress data. Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Reset', style: 'destructive', onPress: async () => {
-          await clearHistory();
-          setNoteStats([]); setTrend([]); setTotalGames(0);
-        }
-      },
-    ]);
+  // Re-filter stats when modeFilter changes
+  useEffect(() => {
+    if (fullHistory.length === 0) return;
+    const filtered = modeFilter === 'all'
+      ? fullHistory
+      : fullHistory.filter((r) => r.mode === modeFilter);
+    const result = buildStats(filtered);
+    setNoteStats(result.noteStats);
+    setTrend(result.trend);
+    setTotalGames(result.totalGames);
+  }, [modeFilter, fullHistory]);
+
+  const handleClear = () => setShowResetModal(true);
+
+  const confirmClear = async () => {
+    await clearHistory();
+    setFullHistory([]);
+    setNoteStats([]);
+    setTrend([]);
+    setTotalGames(0);
+    setShowResetModal(false);
   };
 
   const hardNotes = noteStats.filter((n) => n.avgWrong > 0);
@@ -138,9 +146,15 @@ export default function InsightsScreen({ onBack }: Props) {
   });
   confusedPairs.sort((a, b) => b.count - a.count);
 
-  const trendDir = trend.length >= 2
-    ? trend[trend.length - 1].avgWrong - trend[0].avgWrong
-    : 0;
+  const trendDir = (() => {
+    if (trend.length < 2) return 0;
+    const count = Math.min(3, Math.floor(trend.length / 2));
+    const first = trend.slice(0, count);
+    const last  = trend.slice(-count);
+    const avgFirst = first.reduce((s, p) => s + p.avgWrong, 0) / first.length;
+    const avgLast  = last.reduce((s, p) => s + p.avgWrong, 0) / last.length;
+    return avgLast - avgFirst;
+  })();
 
   const trendLabel = trendDir < -0.1 ? '↑ Better' : trendDir > 0.1 ? '↓ Harder' : '→ Stable';
   const trendColor = trendDir < -0.1 ? '#27ae60' : trendDir > 0.1 ? '#c0392b' : '#aaa';
@@ -160,16 +174,50 @@ export default function InsightsScreen({ onBack }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* Mode filter — always visible */}
+      <View style={styles.modeFilterRow}>
+        {([
+          { key: 'all',    label: 'All',     color: '#aaa' },
+          { key: 'normal', label: 'Normal',  color: '#509fd4' },
+          { key: 'color',  label: 'Color',   color: '#ae61cf' },
+          { key: 'sound',  label: 'Ear',     color: '#e67e22' },
+        ] as const).map((m) => (
+          <TouchableOpacity
+            key={m.key}
+            style={[
+              styles.modeFilterBtn,
+              modeFilter === m.key && { borderColor: m.color, backgroundColor: m.color + '22' },
+            ]}
+            onPress={() => setModeFilter(m.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.modeFilterText, { color: modeFilter === m.key ? m.color : '#666' }]}>
+              {m.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {loading ? (
         <ActivityIndicator color="#c23866" size="large" style={{ marginTop: 60 }} />
       ) : totalGames === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>♩</Text>
-          <Text style={styles.emptyTitle}>No data yet</Text>
-          <Text style={styles.emptyText}>
-            Play some games and your ear training progress will appear here.
-          </Text>
-        </View>
+        <>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>♩</Text>
+            <Text style={styles.emptyTitle}>
+              {modeFilter === 'all'    ? 'No data yet' :
+               modeFilter === 'normal' ? 'No Normal mode data yet' :
+               modeFilter === 'color'  ? 'No Color & Sound data yet' :
+                                         'No Ear Training data yet'}
+            </Text>
+            <Text style={styles.emptyText}>
+              {modeFilter === 'all'    ? 'Play some games and your progress will appear here.' :
+               modeFilter === 'normal' ? 'Play a game in Normal mode to see note name stats.' :
+               modeFilter === 'color'  ? 'Play a game in Color & Sound mode to see color-based stats.' :
+                                         'Play a game in Ear Training mode to see pure listening stats.'}
+            </Text>
+          </View>
+        </>
       ) : (
         <>
           {/* Summary bar */}
@@ -212,28 +260,71 @@ export default function InsightsScreen({ onBack }: Props) {
             {/* Hard Notes tab */}
             {tab === 'notes' && (
               <View style={styles.tabContent}>
+                <View style={styles.trendHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.trendTitle}>Notes you struggle with</Text>
+                  </View>
+                  <TouchableOpacity style={styles.explainBtn} onPress={() => setShowExplainNotes(true)}>
+                    <Text style={styles.explainBtnText}>?</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Sort toggle */}
+                <View style={styles.sortRow}>
+                  <TouchableOpacity
+                    style={[styles.sortBtn, noteSort === 'wrong' && styles.sortBtnActive]}
+                    onPress={() => setNoteSort('wrong')}
+                  >
+                    <Text style={[styles.sortBtnText, noteSort === 'wrong' && styles.sortBtnTextActive]}>
+                      Most Wrong
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sortBtn, noteSort === 'clean' && styles.sortBtnActive]}
+                    onPress={() => setNoteSort('clean')}
+                  >
+                    <Text style={[styles.sortBtnText, noteSort === 'clean' && styles.sortBtnTextActive]}>
+                      Most Clean
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 {hardNotes.length === 0 ? (
                   <Text style={styles.emptyTabText}>No mistakes yet — keep playing!</Text>
                 ) : (
-                  hardNotes.slice(0, 20).map((s) => {
+                  [...hardNotes]
+                    .sort((a, b) => noteSort === 'wrong'
+                      ? b.avgWrong - a.avgWrong
+                      : (b.appearances - b.wrongAppearances) - (a.appearances - a.wrongAppearances)
+                    )
+                    .slice(0, 20)
+                    .map((s) => {
                     const { label, color } = difficultyLabel(s.avgWrong);
-                    const barWidth = (s.avgWrong / maxAvg) * 100;
+                    const cleanAppearances = s.appearances - s.wrongAppearances;
+                    const maxClean = Math.max(...[...hardNotes].map((n) => n.appearances - n.wrongAppearances), 1);
+                    const barWidth = noteSort === 'wrong'
+                      ? (s.avgWrong / maxAvg) * 100
+                      : (cleanAppearances / maxClean) * 100;
+                    const barColor = noteSort === 'wrong' ? color : '#27ae60';
                     return (
                       <View key={s.note} style={styles.noteRow}>
                         <TouchableOpacity
                           style={[styles.noteChip, { backgroundColor: noteColor(s.note) }]}
-                          onPress={() => playNote(s.note)}
+                          onPress={() => playSound(s.note)}
                           activeOpacity={0.7}
                         >
                           <Text style={styles.noteChipText}>{s.note}</Text>
                           <Text style={styles.noteChipPlay}>▶</Text>
                         </TouchableOpacity>
                         <View style={styles.noteBarContainer}>
-                          <View style={[styles.noteBar, { width: `${barWidth}%` as any, backgroundColor: color }]} />
+                          <View style={[styles.noteBar, { width: `${barWidth}%` as any, backgroundColor: barColor }]} />
                         </View>
                         <View style={styles.noteStatRight}>
                           <Text style={[styles.diffLabel, { color }]}>{label}</Text>
                           <Text style={styles.avgText}>{s.avgWrong.toFixed(1)} avg</Text>
+                          <Text style={styles.ratioText}>
+                            {s.wrongAppearances}/{s.appearances} games
+                          </Text>
                         </View>
                       </View>
                     );
@@ -245,6 +336,15 @@ export default function InsightsScreen({ onBack }: Props) {
             {/* Confused pairs tab */}
             {tab === 'confused' && (
               <View style={styles.tabContent}>
+                <View style={styles.trendHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.trendTitle}>Notes you mix up</Text>
+                    <Text style={styles.trendSubtitle}>Sorted by confusion count</Text>
+                  </View>
+                  <TouchableOpacity style={styles.explainBtn} onPress={() => setShowExplainConfused(true)}>
+                    <Text style={styles.explainBtnText}>?</Text>
+                  </TouchableOpacity>
+                </View>
                 {confusedPairs.length === 0 ? (
                   <Text style={styles.emptyTabText}>No confusion pairs recorded yet.</Text>
                 ) : (
@@ -252,7 +352,7 @@ export default function InsightsScreen({ onBack }: Props) {
                     <View key={i} style={styles.confusedRow}>
                       <TouchableOpacity
                         style={[styles.noteChip, { backgroundColor: noteColor(pair.a) }]}
-                        onPress={() => playNote(pair.a)}
+                        onPress={() => playSound(pair.a)}
                         activeOpacity={0.7}
                       >
                         <Text style={styles.noteChipText}>{pair.a}</Text>
@@ -261,7 +361,7 @@ export default function InsightsScreen({ onBack }: Props) {
                       <Text style={styles.confusedArrow}>⇔</Text>
                       <TouchableOpacity
                         style={[styles.noteChip, { backgroundColor: noteColor(pair.b) }]}
-                        onPress={() => playNote(pair.b)}
+                        onPress={() => playSound(pair.b)}
                         activeOpacity={0.7}
                       >
                         <Text style={styles.noteChipText}>{pair.b}</Text>
@@ -269,7 +369,12 @@ export default function InsightsScreen({ onBack }: Props) {
                       </TouchableOpacity>
                       <View style={styles.confusedCountBox}>
                         <Text style={styles.confusedCount}>{pair.count}×</Text>
-                        <Text style={styles.confusedCountLabel}>confused</Text>
+                        <Text style={styles.confusedCountLabel}>
+                          in {Math.min(
+                            noteStats.find((s) => s.note === pair.a)?.appearances ?? 0,
+                            noteStats.find((s) => s.note === pair.b)?.appearances ?? 0
+                          )} games
+                        </Text>
                       </View>
                     </View>
                   ))
@@ -350,7 +455,81 @@ export default function InsightsScreen({ onBack }: Props) {
         </>
       )}
 
-      {/* Explanation modal */}
+      {/* Hard Notes explanation modal */}
+      <Modal visible={showExplainNotes} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.explainOverlay}
+          activeOpacity={1}
+          onPress={() => setShowExplainNotes(false)}
+        >
+          <View style={styles.explainBox}>
+            <Text style={styles.explainTitle}>Hard Notes</Text>
+            <Text style={styles.explainText}>
+              Notes you've made at least one mistake on, across all games. The bar shows how wrong you were on average — longer means harder.
+            </Text>
+            <Text style={styles.explainText}>
+              The ratio (e.g. 3/8 games) shows how many games you struggled with that note out of how many times it appeared.
+            </Text>
+            <Text style={styles.explainText}>
+              Use the sort toggle to switch between your hardest notes (Most Wrong) and your strongest notes (Most Clean).
+            </Text>
+            <View style={styles.explainLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#27ae60' }]} />
+                <Text style={styles.explainLegendText}>Sharp — found quickly, less than 1 wrong on average</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#2980b9' }]} />
+                <Text style={styles.explainLegendText}>Good — 1 to 2 wrong on average</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#e67e22' }]} />
+                <Text style={styles.explainLegendText}>OK — 2 to 4 wrong on average</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#c0392b' }]} />
+                <Text style={styles.explainLegendText}>Hard — 4 or more wrong on average</Text>
+              </View>
+            </View>
+            <Text style={styles.explainTip}>
+              Tip: in a card game you always flip a few cards to explore — 1–2 wrong attempts per note is normal.
+            </Text>
+            <TouchableOpacity style={styles.explainClose} onPress={() => setShowExplainNotes(false)}>
+              <Text style={styles.explainCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Confused pairs explanation modal */}
+      <Modal visible={showExplainConfused} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.explainOverlay}
+          activeOpacity={1}
+          onPress={() => setShowExplainConfused(false)}
+        >
+          <View style={styles.explainBox}>
+            <Text style={styles.explainTitle}>Confused Pairs</Text>
+            <Text style={styles.explainText}>
+              Shows pairs of notes you tend to mix up — when you flipped one note while looking for the other.
+            </Text>
+            <Text style={styles.explainText}>
+              The number (e.g. 3×) is how many total times across all your games you confused those two notes. Confusion is mutual — it counts both directions.
+            </Text>
+            <Text style={styles.explainText}>
+              The "games" number below it shows how many games both notes appeared together — giving you context for how often you actually had the chance to confuse them.
+            </Text>
+            <Text style={styles.explainTip}>
+              Tip: tap either note to hear them back to back and train your ear on the difference.
+            </Text>
+            <TouchableOpacity style={styles.explainClose} onPress={() => setShowExplainConfused(false)}>
+              <Text style={styles.explainCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Trend explanation modal */}
       <Modal visible={showExplain} transparent animationType="fade">
         <TouchableOpacity
           style={styles.explainOverlay}
@@ -393,12 +572,38 @@ export default function InsightsScreen({ onBack }: Props) {
         </TouchableOpacity>
       </Modal>
 
+      {/* Reset confirmation modal */}
+      <Modal visible={showResetModal} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.explainOverlay}
+          activeOpacity={1}
+          onPress={() => setShowResetModal(false)}
+        >
+          <View style={styles.explainBox}>
+            <Text style={styles.resetModalIcon}>🥷</Text>
+            <Text style={styles.resetModalTitle}>Ready to start fresh?</Text>
+            <Text style={styles.resetModalText}>
+              Every mistake is part of the journey. Resetting will clear all your progress — wrong attempts, confusion pairs, score history, and trend data.
+            </Text>
+            <Text style={styles.resetModalText}>
+              Your best scores on the level select screen will also be cleared.
+            </Text>
+            <TouchableOpacity style={styles.resetConfirmBtn} onPress={confirmClear}>
+              <Text style={styles.resetConfirmBtnText}>Yes, reset everything</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.resetCancelBtn} onPress={() => setShowResetModal(false)}>
+              <Text style={styles.resetCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1b1523' },
+  container: { flex: 1, backgroundColor: BG_DEEP },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -416,12 +621,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     paddingVertical: 14,
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     marginHorizontal: 12,
     borderRadius: 12,
     marginBottom: 40,
     marginTop: 20,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
     borderWidth: 1,
   },
   summaryItem: { alignItems: 'center', flex: 1 },
@@ -435,14 +640,31 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 10,
   },
+  modeFilterRow: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  modeFilterBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    backgroundColor: BG_SURFACE,
+  },
+  modeFilterText: { fontSize: 12, fontWeight: '600' },
   tabs: {
     flexDirection: 'row',
     marginHorizontal: 12,
     marginBottom: 15,
     gap: 8,
   },
-  tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: '#251d30', borderWidth: 1.5, borderColor: '#8e44ad22' },
-  tabActive: { backgroundColor: '#251d30', borderColor: '#8e44ad' },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: BG_SURFACE, borderWidth: 1.5, borderColor: '#8e44ad22' },
+  tabActive: { backgroundColor: BG_SURFACE, borderColor: ACCENT_PURPLE },
   tabText: { color: '#888', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   tabTextActive: { color: '#fff', letterSpacing: 0.5 },
   scrollContent: { paddingHorizontal: 12, paddingBottom: 40 },
@@ -459,11 +681,31 @@ const styles = StyleSheet.create({
   },
   noteChipText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   noteChipPlay: { color: 'rgba(255,255,255,0.5)', fontSize: 8, marginTop: 1 },
-  noteBarContainer: { flex: 1, height: 8, backgroundColor: '#251d30', borderRadius: 4, overflow: 'hidden' },
+  noteBarContainer: { flex: 1, height: 8, backgroundColor: BG_SURFACE, borderRadius: 4, overflow: 'hidden' },
   noteBar: { height: '100%', borderRadius: 4 },
   noteStatRight: { alignItems: 'flex-end', minWidth: 76 },
   diffLabel: { fontSize: 12, fontWeight: 'bold' },
   avgText: { fontSize: 10, color: '#666', marginTop: 1 },
+  ratioText: { fontSize: 10, color: '#555', marginTop: 1 },
+
+  // Sort toggle
+  sortRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  sortBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(142,68,173,0.3)',
+    alignItems: 'center',
+    backgroundColor: BG_SURFACE,
+  },
+  sortBtnActive: { borderColor: ACCENT_PURPLE },
+  sortBtnText: { fontSize: 12, color: '#666', fontWeight: '600' },
+  sortBtnTextActive: { color: '#fff' },
   confusedRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   confusedArrow: { color: '#555', fontSize: 20 },
   confusedCountBox: { marginLeft: 'auto', alignItems: 'flex-end' },
@@ -483,20 +725,20 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 10,
   },
-  explainBtnText: { color: '#8e44ad', fontSize: 14, fontWeight: 'bold' },
+  explainBtnText: { color: ACCENT_PURPLE, fontSize: 14, fontWeight: 'bold' },
   trendChart: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    height: 220,
+    height: 180,
     gap: 4,
     paddingBottom: 28,
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     borderRadius: 12,
     paddingTop: 16,
     paddingHorizontal: 12,
@@ -528,12 +770,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   explainBox: {
-    backgroundColor: '#251d30',
+    backgroundColor: BG_SURFACE,
     borderRadius: 16,
     padding: 24,
     width: '100%',
     borderWidth: 1,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
   },
   explainTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 12, textAlign: 'center' },
   explainText: { color: '#aaa', fontSize: 13, lineHeight: 20, marginBottom: 10 },
@@ -545,8 +787,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: '#8e44ad',
+    borderColor: ACCENT_PURPLE,
     alignItems: 'center',
   },
   explainCloseText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
+  // Reset modal
+  resetModalIcon: { fontSize: 44, textAlign: 'center', marginBottom: 12 },
+  resetModalTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
+  resetModalText: { color: '#aaa', fontSize: 13, lineHeight: 20, marginBottom: 10, textAlign: 'center' },
+  resetConfirmBtn: {
+    marginTop: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#c0392b',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 10,
+  },
+  resetConfirmBtnText: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
+  resetCancelBtn: {
+    paddingVertical: 13,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: ACCENT_PURPLE,
+    alignItems: 'center',
+    width: '100%',
+  },
+  resetCancelBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

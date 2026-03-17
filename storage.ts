@@ -11,6 +11,10 @@ function scoreKey(level: LevelKey, mode: ModeKey): string {
   return `bestScore:${level}:${mode}`;
 }
 
+function scoreHistoryKey(level: LevelKey, mode: ModeKey): string {
+  return `scoreHistory:${level}:${mode}`;
+}
+
 export async function getBestScore(level: LevelKey, mode: ModeKey): Promise<number | null> {
   try {
     const val = await AsyncStorage.getItem(scoreKey(level, mode));
@@ -20,9 +24,40 @@ export async function getBestScore(level: LevelKey, mode: ModeKey): Promise<numb
   }
 }
 
+export async function getScoreHistory(level: LevelKey, mode: ModeKey): Promise<number[]> {
+  try {
+    const raw = await AsyncStorage.getItem(scoreHistoryKey(level, mode));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Returns rank (1 = best) and total games played, or null if no history
+export async function getScoreRank(
+  level: LevelKey,
+  mode: ModeKey,
+  score: number
+): Promise<{ rank: number; total: number } | null> {
+  try {
+    const history = await getScoreHistory(level, mode);
+    if (history.length === 0) return null;
+    const sorted = [...history].sort((a, b) => a - b);
+    const rank = sorted.findIndex((s) => score <= s) + 1;
+    return { rank: rank === 0 ? sorted.length : rank, total: sorted.length };
+  } catch {
+    return null;
+  }
+}
+
 // Returns true if this is a new best
 export async function saveBestScore(level: LevelKey, mode: ModeKey, score: number): Promise<boolean> {
   try {
+    // Save to history
+    const history = await getScoreHistory(level, mode);
+    history.push(score);
+    await AsyncStorage.setItem(scoreHistoryKey(level, mode), JSON.stringify(history));
+    // Update best
     const current = await getBestScore(level, mode);
     if (current === null || score < current) {
       await AsyncStorage.setItem(scoreKey(level, mode), String(score));
@@ -129,6 +164,12 @@ export async function getGameHistory(): Promise<GameRecord[]> {
 
 export async function clearHistory(): Promise<void> {
   try {
+    // Clear insights history
     await AsyncStorage.removeItem(INSIGHTS_KEY);
+    // Clear all score history keys for every level+mode combination
+    const levels: LevelKey[] = ['easy', 'medium', 'hard', 'sensei'];
+    const modes: ModeKey[] = ['normal', 'color', 'sound'];
+    const keys = levels.flatMap((l) => modes.map((m) => scoreHistoryKey(l, m)));
+    await AsyncStorage.multiRemove(keys);
   } catch {}
 }

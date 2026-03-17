@@ -1,7 +1,7 @@
 export type NoteName = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B' | 'Bb' | 'Eb' | 'Ab' | 'Db' | 'Gb';
 export type Octave = 3 | 4 | 5 | 6;
 export type LevelKey = 'easy' | 'medium' | 'hard' | 'sensei';
-export type ModeKey = 'normal' | 'sound';
+export type ModeKey = 'normal' | 'color' | 'sound';
 
 export interface NoteCard {
   name: NoteName;
