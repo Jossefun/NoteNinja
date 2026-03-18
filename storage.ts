@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LevelKey, ModeKey, Octave } from './notes';
 
-// ── Score ──────────────────────────────────────────────────────────
+// ── Score ────────────────────────────────────────────────────────────────────
 // Score = turns * 10 + seconds (lower is better)
 export function calcScore(turns: number, seconds: number): number {
   return turns * 10 + seconds;
@@ -69,34 +69,7 @@ export async function saveBestScore(level: LevelKey, mode: ModeKey, score: numbe
   }
 }
 
-// ── Streak ────────────────────────────────────────────────────────
-export async function getStreak(): Promise<number> {
-  try {
-    const val = await AsyncStorage.getItem('winStreak');
-    return val !== null ? parseInt(val, 10) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-export async function incrementStreak(): Promise<number> {
-  try {
-    const current = await getStreak();
-    const next = current + 1;
-    await AsyncStorage.setItem('winStreak', String(next));
-    return next;
-  } catch {
-    return 0;
-  }
-}
-
-export async function resetStreak(): Promise<void> {
-  try {
-    await AsyncStorage.setItem('winStreak', '0');
-  } catch {}
-}
-
-// ── Sensei config persistence ─────────────────────────────────────
+// ── Sensei config persistence ─────────────────────────────────────────────────
 export interface SenseiConfig {
   pairs: number;
   octaves: Octave[];
@@ -126,7 +99,7 @@ export async function saveSenseiConfig(config: SenseiConfig): Promise<void> {
   } catch {}
 }
 
-// ── Insights tracking ─────────────────────────────────────────────
+// ── Insights tracking ─────────────────────────────────────────────────────────
 export interface NoteAttempt {
   note: string;
   wrong: number;

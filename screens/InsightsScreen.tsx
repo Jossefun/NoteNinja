@@ -191,7 +191,7 @@ export default function InsightsScreen({ onBack }: Props) {
             onPress={() => setModeFilter(m.key)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.modeFilterText, { color: modeFilter === m.key ? m.color : '#666' }]}>
+            <Text style={[styles.modeFilterText, { color: modeFilter === m.key ? m.color : '#888modeFilter === m.key' }]}>
               {m.label}
             </Text>
           </TouchableOpacity>
@@ -620,12 +620,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingVertical: 14,
+    paddingVertical: 8,
     backgroundColor: BG_SURFACE,
     marginHorizontal: 12,
     borderRadius: 12,
-    marginBottom: 40,
-    marginTop: 20,
+    marginBottom: 20,
+    marginTop: 10,
     borderColor: ACCENT_PURPLE,
     borderWidth: 1,
   },
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 9, color: '#888', letterSpacing: 1 },
   tapHint: {
     textAlign: 'center',
-    color: '#555',
+    color: '#888',
     fontSize: 11,
     letterSpacing: 0.5,
     marginBottom: 10,
@@ -665,7 +665,7 @@ const styles = StyleSheet.create({
   },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: BG_SURFACE, borderWidth: 1.5, borderColor: '#8e44ad22' },
   tabActive: { backgroundColor: BG_SURFACE, borderColor: ACCENT_PURPLE },
-  tabText: { color: '#888', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
+  tabText: { color: '#9b9696', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   tabTextActive: { color: '#fff', letterSpacing: 0.5 },
   scrollContent: { paddingHorizontal: 12, paddingBottom: 40 },
   tabContent: { paddingTop: 10 },
@@ -718,7 +718,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  trendTitle: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 2 },
+  trendTitle: { color: '#fff', fontSize: 10, fontWeight: '600', marginBottom: 2 },
   trendSubtitle: { color: '#888', fontSize: 11 },
   explainBtn: {
     width: 28,

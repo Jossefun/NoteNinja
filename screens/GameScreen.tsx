@@ -23,9 +23,6 @@ import {
   getBestScore,
   saveBestScore,
   getScoreRank,
-  getStreak,
-  incrementStreak,
-  resetStreak,
   saveGameRecord,
   NoteAttempt,
   SenseiConfig,
@@ -120,11 +117,10 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Score & streak
+  // Score
   const [score, setScore] = useState<number | null>(null);
   const [bestScore, setBestScore] = useState<number | null>(null);
   const [isNewBest, setIsNewBest] = useState(false);
-  const [streak, setStreak] = useState(0);
   const [scoreRank, setScoreRank] = useState<{ rank: number; total: number } | null>(null);
 
   // Match tracking
@@ -213,10 +209,9 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   const matchOrderRef = useRef<string[]>([]);
   useEffect(() => { matchOrderRef.current = matchOrder; }, [matchOrder]);
 
-  // Load best score and streak on mount
+  // Load best score on mount
   useEffect(() => {
     getBestScore(level, mode).then(setBestScore);
-    getStreak().then(setStreak);
   }, [level, mode]);
 
   // Timer tick
@@ -341,8 +336,6 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     if (newBest) setBestScore(finalScore);
     const rank = await getScoreRank(level, mode, finalScore);
     setScoreRank(rank);
-    const newStreak = await incrementStreak();
-    setStreak(newStreak);
     const noteAttempts: NoteAttempt[] = finalMatchOrder.map((note) => ({
       note,
       wrong: insightRef.current[note]?.wrong ?? 0,
@@ -415,9 +408,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     setDisabled(false);
   };
 
-  const handleNewGame = async (): Promise<void> => {
-    await resetStreak();
-    setStreak(0);
+  const handleNewGame = (): void => {
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       shuffleCards();
       Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -480,10 +471,6 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
             {formatTime(seconds)}
           </Animated.Text>
         </TouchableOpacity>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>STREAK</Text>
-          <Text style={styles.statValue}>{streak}</Text>
-        </View>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>BEST</Text>
           <Text style={styles.statValue}>{bestScore !== null ? bestScore : '—'}</Text>
@@ -560,10 +547,6 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
               <View style={styles.scoreItem}>
                 <Text style={styles.scoreLabel}>SCORE</Text>
                 <Text style={[styles.scoreValue, { color: '#f1c40f' }]}>{score}</Text>
-              </View>
-              <View style={styles.scoreItem}>
-                <Text style={styles.scoreLabel}>STREAK</Text>
-                <Text style={styles.scoreValue}>{streak}</Text>
               </View>
             </View>
             {bestScore !== null && (
