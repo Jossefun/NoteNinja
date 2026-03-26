@@ -9,13 +9,12 @@ import {
   SafeAreaView,
   StatusBar,
   Modal,
-  ActivityIndicator,
   ScrollView,
   Dimensions,
   PanResponder,
   Animated,
+  Platform,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import SingleCard from '../components/SingleCard';
 import { LEVEL_CONFIG, NoteCard, LevelKey, ModeKey, buildSenseiPool } from '../notes';
 import {
@@ -34,11 +33,6 @@ const COLUMNS: Record<LevelKey, number> = { easy: 4, medium: 4, hard: 5, sensei:
 const REPLAY_DELAY_MS = 300;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-interface MelodyNote {
-  note: string;
-  duration: number;
-}
-
 function pickRandom<T>(arr: T[], count: number): T[] {
   return [...arr].sort(() => Math.random() - 0.5).slice(0, count);
 }
@@ -47,36 +41,6 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-
-async function composeMelody(notes: string[]): Promise<MelodyNote[]> {
-  const prompt = `You are a music composer. The player matched these notes in a memory game: ${notes.join(', ')}.
-
-Arrange ALL of these notes (use each note exactly once) into a short melody that sounds pleasant and musical.
-You may reorder them freely to create a better musical flow.
-
-Respond with ONLY a JSON array, no explanation, no markdown, no backticks. Example format:
-[{"note":"C4","duration":500},{"note":"E4","duration":300}]
-
-Rules:
-- Use every note exactly once
-- duration is milliseconds until the next note plays (200–800ms range)
-- Make it sound like a real melody, not random`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  const data = await response.json();
-  const text = data.content?.[0]?.text ?? '';
-  return JSON.parse(text.trim()) as MelodyNote[];
 }
 
 function ordinal(n: number): string {
@@ -127,14 +91,21 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   const [matchOrder, setMatchOrder] = useState<string[]>([]);
   const [matchedCards, setMatchedCards] = useState<NoteCard[]>([]);
 
-  // Replay & AI melody
+  // Replay
   const [isReplaying, setIsReplaying] = useState(false);
-  const [isComposing, setIsComposing] = useState(false);
   const [highlightedSoundKey, setHighlightedSoundKey] = useState<string | null>(null);
   const replayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const [showNotepad, setShowNotepad] = useState(false);
+
+  // Mode hint modal
+  const [showModeHint, setShowModeHint] = useState(false);
+
+  // Reveal sets: IDs of already-matched cards at the moment reveal was triggered.
+  // New matches after reveal are NOT included — reveal is a snapshot.
+  const [revealedColorIds, setRevealedColorIds] = useState<Set<string>>(new Set());
+  const [revealedLetterIds, setRevealedLetterIds] = useState<Set<string>>(new Set());
 
   // Swipe-to-play: card layout map and last swiped card tracker
   const cardLayoutsRef = useRef<Record<string, { x: number; y: number; width: number; height: number }>>({});
@@ -164,9 +135,8 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     for (const id in layouts) {
       const { x, y, width, height } = layouts[id];
       if (pageX >= x && pageX <= x + width && pageY >= y && pageY <= y + height) {
-        if (id === lastSwipedIdRef.current) return; // already played this card
+        if (id === lastSwipedIdRef.current) return;
         lastSwipedIdRef.current = id;
-        // Find the card and trigger sound + flash (matched cards only)
         setCards((prev) => {
           const card = prev.find((c) => c.id === id);
           if (card?.matched) {
@@ -239,7 +209,7 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
   }, [paused]);
 
   const handleTimerTap = (): void => {
-    if (!timerActive && !paused) return; // timer hasn't started yet
+    if (!timerActive && !paused) return;
     if (paused) {
       setPaused(false);
       setTimerActive(true);
@@ -277,10 +247,12 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     insightRef.current = {};
     cardLayoutsRef.current = {};
     setIsReplaying(false);
-    setIsComposing(false);
     setPlayingNotes(false);
     setHighlightedSoundKey(null);
     setShowNotepad(false);
+    // Reset hint reveals for new game
+    setRevealedColorIds(new Set());
+    setRevealedLetterIds(new Set());
     if (replayRef.current) clearTimeout(replayRef.current);
   }, [config]);
 
@@ -305,7 +277,6 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
         setCards((prev) => prev.map((c) => c.soundKey === key ? { ...c, matched: true } : c));
         resetTurn();
       } else {
-        // Track confusion for insights
         const wrongKey = choiceOne.soundKey;
         const otherKey = choiceTwo.soundKey;
         if (!insightRef.current[wrongKey]) insightRef.current[wrongKey] = { wrong: 0, confusedWith: [] };
@@ -366,38 +337,6 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     playNext();
   };
 
-  const runAIMelody = async (): Promise<void> => {
-    setWon(false);
-    setIsComposing(true);
-    setDisabled(true);
-    let melody: MelodyNote[] = [];
-    try {
-      melody = await composeMelody(matchOrder);
-    } catch (_) {
-      setIsComposing(false);
-      runReplay(matchOrder, () => setWon(true));
-      return;
-    }
-    setIsComposing(false);
-    setIsReplaying(true);
-    let index = 0;
-    const playNext = (): void => {
-      if (index >= melody.length) {
-        setHighlightedSoundKey(null);
-        setIsReplaying(false);
-        setDisabled(false);
-        setWon(true);
-        return;
-      }
-      const { note, duration } = melody[index];
-      setHighlightedSoundKey(note);
-      playSound(note);
-      index++;
-      replayRef.current = setTimeout(playNext, duration);
-    };
-    playNext();
-  };
-
   const resetTurn = (): void => {
     setChoiceOne(null);
     setChoiceTwo(null);
@@ -415,6 +354,25 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     });
   };
 
+  // Snapshot the IDs of currently matched cards and add them to the reveal set
+  const handleRevealColors = (): void => {
+    setCards((prev) => {
+      const ids = new Set(prev.filter((c) => c.matched).map((c) => c.id ?? c.soundKey));
+      setRevealedColorIds(ids);
+      return prev;
+    });
+    setShowModeHint(false);
+  };
+
+  const handleRevealLetters = (): void => {
+    setCards((prev) => {
+      const ids = new Set(prev.filter((c) => c.matched).map((c) => c.id ?? c.soundKey));
+      setRevealedLetterIds(ids);
+      return prev;
+    });
+    setShowModeHint(false);
+  };
+
   // Init on level/mode change, cleanup on unmount
   useEffect(() => {
     shuffleCards();
@@ -425,6 +383,9 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
     };
   }, [level, mode]);
 
+  const colorsRevealed = revealedColorIds.size > 0;
+  const lettersRevealed = revealedLetterIds.size > 0;
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -434,28 +395,35 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
         <TouchableOpacity onPress={onBackToMode} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Mode</Text>
         </TouchableOpacity>
-        <View style={styles.titleRow}>
+        <View style={styles.titleRow} pointerEvents="none">
           <Text style={[styles.title, { color: levelColor }]}>
             {LEVEL_TITLES[level]}
           </Text>
         </View>
         <View style={styles.headerRight}>
-          {soundOnly ? (
-            <Image
-              source={require('../assets/imgNotes/sound_only.png')}
-              style={{ width: 32, height: 32, tintColor: modeColor }}
-              resizeMode="contain"
-            />
-          ) : (
-            <Image
-              source={colorMode
-                ? require('../assets/imgNotes/color_and_sound.png')
-                : require('../assets/imgNotes/letter_sound.png')
-              }
-              style={{ width: 32, height: 32, tintColor: modeColor }}
-              resizeMode="contain"
-            />
-          )}
+          {/* Tappable mode icon — opens hint modal */}
+          <TouchableOpacity
+            onPress={() => setShowModeHint(true)}
+            activeOpacity={0.6}
+            style={styles.modeIconBtn}
+          >
+            {soundOnly ? (
+              <Image
+                source={require('../assets/imgNotes/sound_only.png')}
+                style={{ width: 32, height: 32, tintColor: modeColor }}
+                resizeMode="contain"
+              />
+            ) : (
+              <Image
+                source={colorMode
+                  ? require('../assets/imgNotes/color_and_sound.png')
+                  : require('../assets/imgNotes/letter_sound.png')
+                }
+                style={{ width: 32, height: 32, tintColor: modeColor }}
+                resizeMode="contain"
+              />
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -505,6 +473,8 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
                 if (item.id) cardLayoutsRef.current[item.id] = layout;
               }}
               levelColor={levelColor}
+              revealedColorIds={revealedColorIds}
+              revealedLetterIds={revealedLetterIds}
             />
           )}
           contentContainerStyle={styles.grid}
@@ -552,11 +522,14 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
             {bestScore !== null && (
               <Text style={styles.bestScoreText}>Best: {bestScore}</Text>
             )}
-            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnAI]} onPress={runAIMelody}>
-              <Text style={styles.modalBtnText}>✦ AI Melody</Text>
+            <TouchableOpacity
+              style={[styles.modalBtn, { borderColor: levelColor }]}
+              onPress={() => { setWon(false); handleNewGame(); }}
+            >
+              <Text style={styles.modalBtnText}>New Game</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.modalBtn, styles.modalBtnReplay]}
+              style={[styles.modalBtn, { borderColor: levelColor }]}
               onPress={() => {
                 if (replayRef.current) clearTimeout(replayRef.current);
                 setIsReplaying(false);
@@ -567,19 +540,86 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
             >
               <Text style={styles.modalBtnText}>Play Your Notes</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnNewGame]} onPress={() => {
-              Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-                shuffleCards();
-                Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-              });
-            }}>
-              <Text style={styles.modalBtnText}>New Game</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={onBackToMenu}>
+            <TouchableOpacity style={[styles.modalBtn, { borderColor: levelColor }]} onPress={onBackToMenu}>
               <Text style={styles.modalBtnText}>Change Level</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, styles.modalBtnInsights]} onPress={onShowInsights}>
+            <TouchableOpacity style={[styles.modalBtn, { borderColor: levelColor, marginBottom: 0 }]} onPress={onShowInsights}>
               <Text style={styles.modalBtnText}>💡  My Insights</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mode hint modal */}
+      <Modal visible={showModeHint} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { borderColor: modeColor }]}>
+            <Text style={[styles.modalTitle, { color: modeColor, fontSize: 18, marginBottom: 16 }]}>
+              Hint Options
+            </Text>
+
+            {/* Sound Only mode: offer color reveal and letter reveal */}
+            {mode === 'sound' && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    { borderColor: colorsRevealed ? '#555' : ACCENT_PURPLE },
+                    colorsRevealed && styles.modalBtnDone,
+                  ]}
+                  onPress={handleRevealColors}
+                  disabled={colorsRevealed}
+                >
+                  <Text style={[styles.modalBtnText, colorsRevealed && styles.modalBtnDoneText]}>
+                    {colorsRevealed ? 'Colors Revealed ✓' : 'Reveal Colors'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    { borderColor: lettersRevealed ? '#555' : ACCENT_PURPLE },
+                    lettersRevealed && styles.modalBtnDone,
+                  ]}
+                  onPress={handleRevealLetters}
+                  disabled={lettersRevealed}
+                >
+                  <Text style={[styles.modalBtnText, lettersRevealed && styles.modalBtnDoneText]}>
+                    {lettersRevealed ? 'Letters Revealed ✓' : 'Reveal Letters'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* Color mode: offer letter reveal only */}
+            {mode === 'color' && (
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  { borderColor: lettersRevealed ? '#555' : ACCENT_PURPLE },
+                  lettersRevealed && styles.modalBtnDone,
+                ]}
+                onPress={handleRevealLetters}
+                disabled={lettersRevealed}
+              >
+                <Text style={[styles.modalBtnText, lettersRevealed && styles.modalBtnDoneText]}>
+                  {lettersRevealed ? 'Letters Revealed ✓' : 'Reveal Letters'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* All modes: change mode */}
+            <TouchableOpacity
+              style={[styles.modalBtn, { borderColor: '#e74c3c' }]}
+              onPress={() => { setShowModeHint(false); onBackToMode(); }}
+            >
+              <Text style={[styles.modalBtnText, { color: '#e74c3c' }]}>Change Mode</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalBtn, { borderColor: ACCENT_PURPLE, marginBottom: 0 }]}
+              onPress={() => setShowModeHint(false)}
+            >
+              <Text style={styles.modalBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -615,19 +655,15 @@ export default function GameScreen({ level, mode, senseiConfig, onBackToMenu, on
         </View>
       </Modal>
 
-      {/* AI composing overlay */}
-      {isComposing && (
-        <View style={styles.composingOverlay}>
-          <ActivityIndicator size="large" color="#27ae60" />
-          <Text style={styles.composingText}>Composing melody…</Text>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
 
+const ANDROID_STATUS_BAR = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
+const ANDROID_NAV_BAR = Platform.OS === 'android' ? 48 : 0;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG_DEEP },
+  container: { flex: 1, backgroundColor: BG_DEEP, paddingTop: ANDROID_STATUS_BAR },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -636,10 +672,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   backBtn: { paddingVertical: 6, paddingHorizontal: 10 },
-  backBtnText: { color: '#aaa', fontSize: 14 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backBtnText: { color: '#888', fontSize: 14 },
+  titleRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: { fontSize: 20, fontWeight: 'bold', letterSpacing: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', minWidth: 40, justifyContent: 'flex-end' },
+  modeIconBtn: { padding: 6 },
   statsBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -668,6 +711,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
+    paddingBottom: Platform.OS === 'android' ? ANDROID_NAV_BAR : 14,
     gap: 12,
   },
   footerInsightsBtn: {
@@ -714,12 +758,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: ACCENT_PURPLE,
   },
-  modalBtnAI:        { borderColor: '#27ae60' },
-  modalBtnNewGame:   { borderColor: '#2980b9' },
-  modalBtnReplay:    { borderColor: '#e67e22' },
-  modalBtnSecondary: { borderColor: '#c0392b' },
-  modalBtnInsights:  { borderColor: ACCENT_PURPLE, marginBottom: 0 },
+  modalBtnDone: {
+    opacity: 0.45,
+  },
   modalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
+  modalBtnDoneText: { color: '#aaa' },
   notepadOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
   notepadBox: {
     backgroundColor: BG_SURFACE,
@@ -745,12 +788,4 @@ const styles = StyleSheet.create({
   },
   notepadNote: { fontSize: 18, fontWeight: 'bold' },
   notepadOctave: { fontSize: 10, opacity: 0.85, marginTop: 2 },
-  composingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  composingText: { color: '#fff', fontSize: 16 },
 });

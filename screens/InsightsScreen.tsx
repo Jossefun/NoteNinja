@@ -191,7 +191,7 @@ export default function InsightsScreen({ onBack }: Props) {
             onPress={() => setModeFilter(m.key)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.modeFilterText, { color: modeFilter === m.key ? m.color : '#888modeFilter === m.key' }]}>
+            <Text style={[styles.modeFilterText, { color: modeFilter === m.key ? m.color : '#888' }]}>
               {m.label}
             </Text>
           </TouchableOpacity>
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: BG_SURFACE,
   },
-  modeFilterText: { fontSize: 12, fontWeight: '600' },
+  modeFilterText: { fontSize: 12, fontWeight: '600', color: '#888' },
   tabs: {
     flexDirection: 'row',
     marginHorizontal: 12,

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { LevelKey } from '../notes';
 import { getBestScore } from '../storage';
@@ -28,10 +29,10 @@ const LEVELS: LevelOption[] = [
 interface Props {
   readonly onSelect: (level: LevelKey) => void;
   readonly onShowInsights: () => void;
+  readonly onShowOnboarding: () => void;
 }
 
-export default function LevelSelect({ onSelect, onShowInsights }: Props) {
-  // Best score per level: store the best across all 3 modes
+export default function LevelSelect({ onSelect, onShowInsights, onShowOnboarding }: Props) {
   const [bestScores, setBestScores] = useState<Partial<Record<LevelKey, number>>>({});
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function LevelSelect({ onSelect, onShowInsights }: Props) {
                     </Text>
                   )}
                 </View>
-                <Text style={styles.levelDesc}>{level.description}</Text>
+                <Text style={styles.levelDesc} numberOfLines={1} ellipsizeMode="tail">{level.description}</Text>
               </View>
             </TouchableOpacity>
           );
@@ -99,22 +100,29 @@ export default function LevelSelect({ onSelect, onShowInsights }: Props) {
         <TouchableOpacity style={styles.insightsBtn} onPress={onShowInsights}>
           <Text style={styles.insightsBtnText}>💡  My Insights</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.howToPlayBtn} onPress={onShowOnboarding}>
+          <Text style={styles.howToPlayText}>How to Play</Text>
+        </TouchableOpacity>
       </View>
 
     </SafeAreaView>
   );
 }
 
+const ANDROID_STATUS_BAR = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
+const ANDROID_NAV_BAR = Platform.OS === 'android' ? 48 : 0;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BG_DEEP,
     paddingHorizontal: 24,
+    paddingTop: ANDROID_STATUS_BAR,
   },
   topSection: {
-    flex: 1,
+    flex: 0,
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    paddingTop: 24,
     paddingBottom: 24,
   },
   appTitle: {
@@ -139,7 +147,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cardsSection: {
-    flex: 3,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 12,
@@ -176,9 +184,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   bottomSection: {
-    flex: 1,
+    flex: 0,
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingBottom: Platform.OS === 'android' ? ANDROID_NAV_BAR : 24,
+    gap: 12,
   },
   insightsBtn: {
     paddingVertical: 12,
@@ -193,5 +203,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.5,
+  },
+  howToPlayBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  howToPlayText: {
+    color: '#aaa',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

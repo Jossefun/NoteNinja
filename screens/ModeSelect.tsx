@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     left: 20,
     zIndex: 1,
   },
-  backBtnText: { color: '#fff', fontSize: 14 },
+  backBtnText: { color: '#888', fontSize: 14 },
   topSection: {
     alignItems: 'center',
     marginBottom: 40,

@@ -1,13 +1,13 @@
 {
   "expo": {
     "name": "NoteNinja",
-    "slug": "music-notes-training",
+    "slug": "noteninja",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/NoteNinjaIcon.png",
     "userInterfaceStyle": "dark",
-     "splash": {
+    "splash": {
       "image": "./assets/splash-white.png",
       "resizeMode": "contain",
       "backgroundColor": "#1b1523"
@@ -16,12 +16,21 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jossefIn.noteninja"
     },
     "android": {
+      "package": "com.jossefIn.noteninja",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/NoteNinjaIcon.png",
         "backgroundColor": "#1b1523"
       }
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "68a14c1c-5565-4ddf-b5ba-4e071e8e226c"
+      }
+    },
+    "owner": "jossefin"
   }
 }

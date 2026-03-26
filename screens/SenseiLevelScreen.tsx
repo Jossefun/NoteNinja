@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   StatusBar,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { Octave } from '../notes';
 import { SenseiConfig, getSenseiConfig, saveSenseiConfig } from '../storage';
@@ -16,6 +17,9 @@ const COLOR = LEVEL_COLORS.sensei;
 const ALL_OCTAVES: Octave[] = [3, 4, 5, 6];
 const MIN_PAIRS = 7;
 const MAX_PAIRS = 14;
+
+const ANDROID_STATUS_BAR = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
+const ANDROID_NAV_BAR = Platform.OS === 'android' ? 48 : 0;
 
 interface Props {
   readonly onStart: (config: SenseiConfig) => void;
@@ -29,7 +33,6 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
   const [poolSize, setPoolSize] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
-  // Load persisted config
   useEffect(() => {
     getSenseiConfig().then((cfg) => {
       setPairs(cfg.pairs);
@@ -39,7 +42,6 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
     });
   }, []);
 
-  // Compute available pool size and auto-clamp pairs if pool shrinks
   useEffect(() => {
     const notesPerOctave = 7 + (includeFlats ? 5 : 0);
     const newPoolSize = octaves.length * notesPerOctave;
@@ -52,7 +54,6 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
   const toggleOctave = (oct: Octave) => {
     setOctaves((prev) => {
       if (prev.includes(oct)) {
-        // Must keep at least one octave selected
         if (prev.length === 1) return prev;
         return prev.filter((o) => o !== oct);
       }
@@ -78,9 +79,10 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
         <Text style={styles.backBtnText}>← Levels</Text>
       </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* Title */}
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={[styles.title, { color: COLOR }]}>Sensei</Text>
         <Text style={styles.subtitle}>Configure your level</Text>
 
@@ -143,7 +145,7 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
             activeOpacity={0.7}
           >
             <Text style={[styles.toggleText, { color: includeFlats ? COLOR : '#888' }]}>
-              {includeFlats ? '✓  B♭  E♭  A♭  D♭  G♭' : 'Naturals only'}
+              {includeFlats ? '♭  B♭  E♭  A♭  D♭  G♭' : 'Naturals only'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -151,7 +153,7 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
         {/* Pool info */}
         <Text style={[styles.poolInfo, pairsExceedPool && styles.poolWarning]}>
           {pairsExceedPool
-            ? `⚠ Pool has ${poolSize} notes — reduce pairs to ${poolSize} or add more octaves`
+            ? `Pool has ${poolSize} notes — reduce pairs to ${poolSize} or add more octaves`
             : `Pool: ${poolSize} notes available`}
         </Text>
 
@@ -173,12 +175,20 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG_DEEP },
-  backBtn: { paddingVertical: 6, paddingHorizontal: 16, marginTop: 8 },
+  container: {
+    flex: 1,
+    backgroundColor: BG_DEEP,
+    paddingTop: ANDROID_STATUS_BAR,
+  },
+  backBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
   backBtnText: { color: '#aaa', fontSize: 14 },
   scroll: {
     paddingHorizontal: 28,
-    paddingBottom: 40,
+    paddingBottom: 24 + ANDROID_NAV_BAR,
     alignItems: 'center',
   },
   title: {
@@ -208,7 +218,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginBottom: 14,
   },
-  // Pairs stepper
   pairsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -225,7 +234,6 @@ const styles = StyleSheet.create({
   },
   stepBtnText: { fontSize: 24, fontWeight: 'bold', lineHeight: 28 },
   pairsValue: { fontSize: 36, fontWeight: 'bold', minWidth: 48, textAlign: 'center' },
-  // Octave checkboxes
   checkRow: {
     flexDirection: 'row',
     gap: 10,
@@ -240,7 +248,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checkLabel: { fontSize: 14, fontWeight: '600' },
-  // Flats toggle
   toggle: {
     width: '100%',
     paddingVertical: 14,
@@ -249,7 +256,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toggleText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-  // Pool info
   poolInfo: {
     fontSize: 12,
     color: '#888',
@@ -257,7 +263,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   poolWarning: { color: '#e74c3c' },
-  // Start button
   startBtn: {
     width: '100%',
     paddingVertical: 16,

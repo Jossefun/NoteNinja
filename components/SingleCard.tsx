@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Dimensions,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { NoteCard } from '../notes';
 import { BG_SURFACE } from '../theme';
 import { playSound } from '../audio';
@@ -36,6 +35,9 @@ interface Props {
   readonly onTap?: () => void;
   readonly levelColor?: string;
   readonly onRegisterLayout?: (layout: { x: number; y: number; width: number; height: number }) => void;
+  // Hint reveal props — only affect already-matched cards at time of reveal
+  readonly revealedColorIds?: Set<string>;
+  readonly revealedLetterIds?: Set<string>;
 }
 
 export default function SingleCard({
@@ -52,6 +54,8 @@ export default function SingleCard({
   onTap,
   levelColor = '#888',
   onRegisterLayout,
+  revealedColorIds,
+  revealedLetterIds,
 }: Props) {
   const CARD_WIDTH  = cardHeight ?? (SCREEN_WIDTH / numColumns - 10);
   const CARD_HEIGHT = CARD_WIDTH;
@@ -80,7 +84,8 @@ export default function SingleCard({
       setFlashActive(true);
 
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 150, useNativeDriver: true }),
+        // Match flash pulse 
+        Animated.timing(pulseAnim, { toValue: 1.04, duration: 150, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1.0,  duration: 450, useNativeDriver: true }),
       ]).start();
 
@@ -100,7 +105,7 @@ export default function SingleCard({
   useEffect(() => {
     if (highlighted) {
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.18, duration: 120, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.04, duration: 120, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1.0,  duration: 120, useNativeDriver: true }),
       ]).start();
     }
@@ -125,6 +130,17 @@ export default function SingleCard({
 
     playSound(card.soundKey);
   };
+
+  // Hint reveal: only applies to cards that were already matched when reveal was triggered
+  const cardId = card.id ?? card.soundKey;
+  const colorRevealed = card.matched && (revealedColorIds?.has(cardId) ?? false);
+  const letterRevealed = card.matched && (revealedLetterIds?.has(cardId) ?? false);
+
+  // In Sound Only (trueSound) mode, show color if revealed; otherwise BG_SURFACE
+  const frontBgColor = (trueSound && !colorRevealed) ? BG_SURFACE : card.color;
+
+  // Show note text if: not soundOnly, OR letter is revealed for this card
+  const showNoteText = !soundOnly || letterRevealed;
 
   const showBorder = flashActive || highlighted;
   const fontSize = CARD_WIDTH < 55 ? 10 : CARD_WIDTH < 72 ? 14 : 18;
@@ -175,7 +191,7 @@ export default function SingleCard({
               width: CARD_WIDTH,
               height: CARD_HEIGHT,
               borderRadius: 10,
-              backgroundColor: trueSound ? BG_SURFACE : card.color,
+              backgroundColor: frontBgColor,
               borderColor: showBorder ? '#ffffff' : 'rgba(255,255,255,0.2)',
               borderWidth: showBorder ? 3 : 2,
               overflow: 'hidden',
@@ -183,9 +199,7 @@ export default function SingleCard({
             { transform: [{ rotateY: frontRotate }], opacity: frontOpacity },
           ]}
         >
-          {soundOnly ? (
-            <Text style={[styles.soundIcon, { fontSize: CARD_WIDTH * 0.4 }]}>♪</Text>
-          ) : (
+          {showNoteText ? (
             <>
               <Text style={[styles.noteLabel, { fontSize, color: card.octaveColor }]}>
                 {card.label.slice(0, -1)}
@@ -194,6 +208,12 @@ export default function SingleCard({
                 oct {card.octave}
               </Text>
             </>
+          ) : (
+            <Image
+              source={require('../assets/imgNotes/color_and_sound.png')}
+              style={{ width: CARD_WIDTH * 0.5, height: CARD_HEIGHT * 0.5, tintColor: 'rgba(255,255,255,0.5)' }}
+              resizeMode="contain"
+            />
           )}
 
           {/* Diagonal streak overlay */}
