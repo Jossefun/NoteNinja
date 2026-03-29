@@ -9,11 +9,15 @@ import {
   StatusBar,
   ActivityIndicator,
   Modal,
+  Platform,
 } from 'react-native';
 import { getGameHistory, clearHistory, GameRecord } from '../storage';
 import { NOTE_COLORS } from '../notes';
 import { playSound } from '../audio';
 import { BG_DEEP, BG_SURFACE, ACCENT_PURPLE } from '../theme';
+
+const ANDROID_STATUS_BAR = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
+const ANDROID_NAV_BAR = Platform.OS === 'android' ? 48 : 0;
 
 interface NoteStats {
   note: string;
@@ -107,7 +111,6 @@ export default function InsightsScreen({ onBack }: Props) {
 
   useEffect(() => { load(); }, []);
 
-  // Re-filter stats when modeFilter changes
   useEffect(() => {
     if (fullHistory.length === 0) return;
     const filtered = modeFilter === 'all'
@@ -269,7 +272,6 @@ export default function InsightsScreen({ onBack }: Props) {
                   </TouchableOpacity>
                 </View>
 
-                {/* Sort toggle */}
                 <View style={styles.sortRow}>
                   <TouchableOpacity
                     style={[styles.sortBtn, noteSort === 'wrong' && styles.sortBtnActive]}
@@ -385,8 +387,6 @@ export default function InsightsScreen({ onBack }: Props) {
             {/* Trend tab */}
             {tab === 'trend' && (
               <View style={styles.tabContent}>
-
-                {/* Header row: title + explain button */}
                 <View style={styles.trendHeaderRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.trendTitle}>Wrong attempts per game</Text>
@@ -401,7 +401,6 @@ export default function InsightsScreen({ onBack }: Props) {
                   <Text style={styles.emptyTabText}>Play at least 2 games to see a trend.</Text>
                 ) : (
                   <>
-                    {/* Chart */}
                     <View style={styles.trendChart}>
                       {trend.map((pt, i) => {
                         const maxVal = Math.max(...trend.map((t) => t.avgWrong), 1);
@@ -427,7 +426,6 @@ export default function InsightsScreen({ onBack }: Props) {
                       })}
                     </View>
 
-                    {/* Color legend */}
                     <View style={styles.legend}>
                       <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: '#27ae60' }]} />
@@ -457,11 +455,7 @@ export default function InsightsScreen({ onBack }: Props) {
 
       {/* Hard Notes explanation modal */}
       <Modal visible={showExplainNotes} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.explainOverlay}
-          activeOpacity={1}
-          onPress={() => setShowExplainNotes(false)}
-        >
+        <TouchableOpacity style={styles.explainOverlay} activeOpacity={1} onPress={() => setShowExplainNotes(false)}>
           <View style={styles.explainBox}>
             <Text style={styles.explainTitle}>Hard Notes</Text>
             <Text style={styles.explainText}>
@@ -503,11 +497,7 @@ export default function InsightsScreen({ onBack }: Props) {
 
       {/* Confused pairs explanation modal */}
       <Modal visible={showExplainConfused} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.explainOverlay}
-          activeOpacity={1}
-          onPress={() => setShowExplainConfused(false)}
-        >
+        <TouchableOpacity style={styles.explainOverlay} activeOpacity={1} onPress={() => setShowExplainConfused(false)}>
           <View style={styles.explainBox}>
             <Text style={styles.explainTitle}>Confused Pairs</Text>
             <Text style={styles.explainText}>
@@ -531,11 +521,7 @@ export default function InsightsScreen({ onBack }: Props) {
 
       {/* Trend explanation modal */}
       <Modal visible={showExplain} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.explainOverlay}
-          activeOpacity={1}
-          onPress={() => setShowExplain(false)}
-        >
+        <TouchableOpacity style={styles.explainOverlay} activeOpacity={1} onPress={() => setShowExplain(false)}>
           <View style={styles.explainBox}>
             <Text style={styles.explainTitle}>How to read this chart</Text>
             <Text style={styles.explainText}>
@@ -562,9 +548,7 @@ export default function InsightsScreen({ onBack }: Props) {
                 <Text style={styles.explainLegendText}>White — your most recent game</Text>
               </View>
             </View>
-            <Text style={styles.explainTip}>
-              Tip: aim for more green bars over time.
-            </Text>
+            <Text style={styles.explainTip}>Tip: aim for more green bars over time.</Text>
             <TouchableOpacity style={styles.explainClose} onPress={() => setShowExplain(false)}>
               <Text style={styles.explainCloseText}>Got it</Text>
             </TouchableOpacity>
@@ -574,13 +558,9 @@ export default function InsightsScreen({ onBack }: Props) {
 
       {/* Reset confirmation modal */}
       <Modal visible={showResetModal} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.explainOverlay}
-          activeOpacity={1}
-          onPress={() => setShowResetModal(false)}
-        >
+        <TouchableOpacity style={styles.explainOverlay} activeOpacity={1} onPress={() => setShowResetModal(false)}>
           <View style={styles.explainBox}>
-            <Text style={styles.resetModalIcon}>🥷</Text>
+            <Text style={styles.resetModalIcon}>🗑</Text>
             <Text style={styles.resetModalTitle}>Ready to start fresh?</Text>
             <Text style={styles.resetModalText}>
               Every mistake is part of the journey. Resetting will clear all your progress — wrong attempts, confusion pairs, score history, and trend data.
@@ -603,13 +583,14 @@ export default function InsightsScreen({ onBack }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG_DEEP },
+  container: { flex: 1, backgroundColor: BG_DEEP, paddingTop: ANDROID_STATUS_BAR },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   backBtn: { paddingVertical: 6, paddingHorizontal: 4 },
   backBtnText: { color: '#aaa', fontSize: 14 },
@@ -667,8 +648,8 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: BG_SURFACE, borderColor: ACCENT_PURPLE },
   tabText: { color: '#9b9696', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   tabTextActive: { color: '#fff', letterSpacing: 0.5 },
-  scrollContent: { paddingHorizontal: 12, paddingBottom: 40 },
-  tabContent: { paddingTop: 10 },
+  scrollContent: { paddingHorizontal: 12, paddingBottom: 40 + ANDROID_NAV_BAR },
+  tabContent: { paddingTop: 14 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyIcon: { fontSize: 52, marginBottom: 16 },
   emptyTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 12 },
@@ -687,21 +668,10 @@ const styles = StyleSheet.create({
   diffLabel: { fontSize: 12, fontWeight: 'bold' },
   avgText: { fontSize: 10, color: '#666', marginTop: 1 },
   ratioText: { fontSize: 10, color: '#555', marginTop: 1 },
-
-  // Sort toggle
-  sortRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
+  sortRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   sortBtn: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(142,68,173,0.3)',
-    alignItems: 'center',
-    backgroundColor: BG_SURFACE,
+    flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1,
+    borderColor: 'rgba(142,68,173,0.3)', alignItems: 'center', backgroundColor: BG_SURFACE,
   },
   sortBtnActive: { borderColor: ACCENT_PURPLE },
   sortBtnText: { fontSize: 12, color: '#666', fontWeight: '600' },
@@ -711,71 +681,34 @@ const styles = StyleSheet.create({
   confusedCountBox: { marginLeft: 'auto', alignItems: 'flex-end' },
   confusedCount: { color: '#f1c40f', fontWeight: 'bold', fontSize: 15 },
   confusedCountLabel: { color: '#666', fontSize: 9, letterSpacing: 0.5 },
-
-  // Trend tab
-  trendHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+  trendHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   trendTitle: { color: '#fff', fontSize: 10, fontWeight: '600', marginBottom: 2 },
   trendSubtitle: { color: '#888', fontSize: 11 },
   explainBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: ACCENT_PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 10,
+    width: 28, height: 28, borderRadius: 14, borderWidth: 1.5,
+    borderColor: ACCENT_PURPLE, alignItems: 'center', justifyContent: 'center', marginLeft: 10,
   },
   explainBtnText: { color: ACCENT_PURPLE, fontSize: 14, fontWeight: 'bold' },
   trendChart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    height: 180,
-    gap: 4,
-    paddingBottom: 28,
-    backgroundColor: BG_SURFACE,
-    borderRadius: 12,
-    paddingTop: 16,
-    paddingHorizontal: 12,
-    marginBottom: 16,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center',
+    height: 180, gap: 4, paddingBottom: 0, backgroundColor: BG_SURFACE,
+    borderRadius: 12, paddingTop: 16, paddingHorizontal: 12, marginBottom: 16,
   },
   trendBarWrapper: { alignItems: 'center', justifyContent: 'flex-end', flex: 1 },
   trendBar: { width: '80%', borderRadius: 4, marginBottom: 4 },
   trendValue: { fontSize: 7, color: '#888', marginBottom: 3 },
   trendLabel: { fontSize: 7, color: '#555', marginTop: 3 },
-
-  // Legend
-  legend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 8,
-  },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, paddingHorizontal: 8 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { color: '#888', fontSize: 11 },
-
-  // Explanation modal
   explainOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24,
   },
   explainBox: {
-    backgroundColor: BG_SURFACE,
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    borderWidth: 1,
-    borderColor: ACCENT_PURPLE,
+    backgroundColor: BG_SURFACE, borderRadius: 16, padding: 24,
+    width: '100%', borderWidth: 1, borderColor: ACCENT_PURPLE,
   },
   explainTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 12, textAlign: 'center' },
   explainText: { color: '#aaa', fontSize: 13, lineHeight: 20, marginBottom: 10 },
@@ -783,37 +716,21 @@ const styles = StyleSheet.create({
   explainLegendText: { color: '#aaa', fontSize: 13 },
   explainTip: { color: '#27ae60', fontSize: 12, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
   explainClose: {
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: ACCENT_PURPLE,
-    alignItems: 'center',
+    marginTop: 16, paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1.5, borderColor: ACCENT_PURPLE, alignItems: 'center',
   },
   explainCloseText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-
-  // Reset modal
   resetModalIcon: { fontSize: 44, textAlign: 'center', marginBottom: 12 },
   resetModalTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
   resetModalText: { color: '#aaa', fontSize: 13, lineHeight: 20, marginBottom: 10, textAlign: 'center' },
   resetConfirmBtn: {
-    marginTop: 8,
-    paddingVertical: 13,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#c0392b',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 10,
+    marginTop: 8, paddingVertical: 13, borderRadius: 10, borderWidth: 1.5,
+    borderColor: '#c0392b', alignItems: 'center', width: '100%', marginBottom: 10,
   },
   resetConfirmBtnText: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
   resetCancelBtn: {
-    paddingVertical: 13,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: ACCENT_PURPLE,
-    alignItems: 'center',
-    width: '100%',
+    paddingVertical: 13, borderRadius: 10, borderWidth: 1.5,
+    borderColor: ACCENT_PURPLE, alignItems: 'center', width: '100%',
   },
   resetCancelBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

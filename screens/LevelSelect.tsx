@@ -120,10 +120,9 @@ const styles = StyleSheet.create({
     paddingTop: ANDROID_STATUS_BAR,
   },
   topSection: {
-    flex: 0,
+    flex: 1,
     alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 24,
+    justifyContent: 'center',
   },
   appTitle: {
     fontSize: 38,
@@ -147,7 +146,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cardsSection: {
-    flex: 1,
+    flex: 2,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 12,
@@ -186,8 +185,8 @@ const styles = StyleSheet.create({
   bottomSection: {
     flex: 0,
     alignItems: 'center',
-    paddingVertical: 24,
-    paddingBottom: Platform.OS === 'android' ? ANDROID_NAV_BAR : 24,
+    paddingVertical: 20,
+    paddingBottom: Platform.OS === 'android' ? ANDROID_NAV_BAR : 20,
     gap: 12,
   },
   insightsBtn: {

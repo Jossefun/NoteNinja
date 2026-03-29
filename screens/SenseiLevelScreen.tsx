@@ -69,8 +69,6 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
 
   const pairsExceedPool = pairs > poolSize;
 
-  if (!loaded) return null;
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -157,7 +155,10 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
             : `Pool: ${poolSize} notes available`}
         </Text>
 
-        {/* Start button */}
+      </ScrollView>
+
+      {/* Start Game — fixed at bottom */}
+      <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.startBtn, { borderColor: COLOR }, pairsExceedPool && styles.startBtnDisabled]}
           onPress={handleStart}
@@ -168,8 +169,8 @@ export default function SenseiLevelScreen({ onStart, onBack }: Props) {
             Start Game
           </Text>
         </TouchableOpacity>
+      </View>
 
-      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -188,7 +189,7 @@ const styles = StyleSheet.create({
   backBtnText: { color: '#aaa', fontSize: 14 },
   scroll: {
     paddingHorizontal: 28,
-    paddingBottom: 24 + ANDROID_NAV_BAR,
+    paddingBottom: 16,
     alignItems: 'center',
   },
   title: {
@@ -263,6 +264,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   poolWarning: { color: '#e74c3c' },
+  footer: {
+    paddingHorizontal: 28,
+    paddingVertical: 16,
+    paddingBottom: 16 + ANDROID_NAV_BAR,
+  },
   startBtn: {
     width: '100%',
     paddingVertical: 16,
